@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste de Autenticação Firebase</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+        }
+
+        .log {
+            background: #f0f0f0;
+            padding: 10px;
+            border: 1px solid #ccc;
+            margin-top: 10px;
+            white-space: pre-wrap;
+        }
+
+        .error {
+            color: red;
+        }
+
+        .success {
+            color: green;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Diagnóstico T-FIT</h1>
+    <p>Este arquivo testa a conexão com o Firebase e a permissão de cadastro.</p>
+    <button onclick="runTest()">Iniciar Teste</button>
+    <div id="output" class="log">Aguardando...</div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+
+    <!-- Config -->
+    <script src="firebase-config.js"></script>
+
+    <script>
+        function log(msg, type = '') {
+            const out = document.getElementById('output');
+            const el = document.createElement('div');
+            el.textContent = msg;
+            if (type) el.className = type;
+            out.appendChild(el);
+            console.log(msg);
+        }
+
+        async function runTest() {
+            document.getElementById('output').innerHTML = '';
+            log('Iniciando teste...');
+
+            try {
+                if (!firebase.apps.length) {
+                    firebase.initializeApp(firebaseConfig);
+                }
+                const projectId = firebase.app().options.projectId;
+                log(`Project ID configurado: ${projectId}`);
+
+                const email = `teste_${Date.now()}@example.com`;
+                const password = "SenhaTeste123!";
+
+                log(`Tentando criar usuário: ${email}...`);
+
+                const userCredential = await firebase.auth().createUserWithEmailAndPassword(email, password);
+                log(`SUCESSO! Usuário criado com UID: ${userCredential.user.uid}`, 'success');
+                alert('Teste bem sucedido! O cadastro está funcionando neste arquivo de teste.');
+
+            } catch (error) {
+                log(`ERRO: ${error.code} - ${error.message}`, 'error');
+                if (error.code === 'auth/operation-not-allowed') {
+                    log('DIAGNÓSTICO: O método de login "Email/Password" está DESATIVADO no console do Firebase para este projeto.', 'error');
+                    log('Verifique se você está editando o projeto correto: ' + firebase.app().options.projectId, 'error');
+                }
+            }
+        }
+    </script>
+</body>
+
+</html>

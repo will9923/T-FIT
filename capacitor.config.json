@@ -1,0 +1,18 @@
+{
+  "appId": "com.tfit.app",
+  "appName": "T-FIT",
+  "webDir": "www",
+  "server": {
+    "url": "https://tfit.com.br/",
+    "cleartext": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 3000,
+      "launchAutoHide": true,
+      "backgroundColor": "#000000",
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP"
+    }
+  }
+}

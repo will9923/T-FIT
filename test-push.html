@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste de Notificações - T-FIT</title>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            padding: 20px;
+            line-height: 1.6;
+            max-width: 600px;
+            margin: 0 auto;
+            background: #f4f4f9;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #dc2626;
+            font-size: 1.5rem;
+        }
+
+        button {
+            background: #dc2626;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background: #b91c1c;
+        }
+
+        .token-area {
+            background: #eee;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.8rem;
+            word-break: break-all;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .status {
+            margin-top: 15px;
+            font-weight: bold;
+        }
+
+        .success {
+            color: #059669;
+        }
+
+        .error {
+            color: #dc2626;
+        }
+
+        .info {
+            color: #2563eb;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="card">
+        <h1>Teste de Notificações Push</h1>
+        <p>Use esta página para verificar se a implementação do Firebase Messaging está correta.</p>
+
+        <button onclick="initTest()">1. Inicializar e Pedir Permissão</button>
+        <div id="status-init" class="status"></div>
+        <div id="token-display" class="token-area"></div>
+    </div>
+
+    <div class="card">
+        <h1>Teste de Mensagem (Foreground)</h1>
+        <p>Simula o recebimento de uma mensagem enquanto o app está aberto.</p>
+        <button onclick="simulateMessage()">2. Simular Mensagem Recebida</button>
+    </div>
+
+    <div class="card">
+        <h1>Como testar no Real?</h1>
+        <ol>
+            <li>Clique no botão "Inicializar" acima.</li>
+            <li>Copie o <b>Token Gerado</b>.</li>
+            <li>Vá no <a href="https://console.firebase.google.com/" target="_blank">Console do Firebase</a>.</li>
+            <li>Selecione <b>Cloud Messaging</b> -> <b>Nova Campanha</b> -> <b>Notificações</b>.</li>
+            <li>Clique em <b>Enviar mensagem de teste</b>.</li>
+            <li>Cole o token e clique em <b>Testar</b>.</li>
+        </ol>
+    </div>
+
+    <!-- Firebase SDK Compat -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging-compat.js"></script>
+
+    <!-- Scripts locais -->
+    <script src="firebase-config.js"></script>
+    <script src="push-notifications.js"></script>
+
+    <script>
+        // Mock UI object if not defined to prevent errors
+        if (!window.UI) {
+            window.UI = {
+                showNotification: (title, body, type) => {
+                    alert(`[NOTIFICAÇÃO ${type.toUpperCase()}]\n${title}\n${body}`);
+                }
+            };
+        }
+
+        async function initTest() {
+            const statusDiv = document.getElementById('status-init');
+            const tokenDiv = document.getElementById('token-display');
+
+            statusDiv.innerHTML = '<span class="info">Solicitando permissão e gerando token...</span>';
+
+            try {
+                // Chama a função que implementamos
+                await window.setupPushNotifications();
+
+                // O token é gerado mas não retornado pela função original, 
+                // vamos tentar pegar diretamente aqui para fins de teste
+                const messaging = firebase.messaging();
+                const VAPID_KEY = "BEA1kG-S3QgzG2fU67FbBC_AOYI4xtyvQqowttpORFSNn-1XA6M8rOmjBA_9c03Q0wi-AVRrmf59Jx5QyxDOIGQ";
+
+                const token = await messaging.getToken({ vapidKey: VAPID_KEY });
+
+                if (token) {
+                    statusDiv.innerHTML = '<span class="success">✅ Token gerado com sucesso!</span>';
+                    tokenDiv.innerText = token;
+                    tokenDiv.style.display = 'block';
+                    console.log("FCM Token:", token);
+                } else {
+                    statusDiv.innerHTML = '<span class="error">❌ Falha ao obter token. Verifique o console.</span>';
+                }
+            } catch (err) {
+                statusDiv.innerHTML = `<span class="error">❌ Erro: ${err.message}</span>`;
+                console.error(err);
+            }
+        }
+
+        function simulateMessage() {
+            // Emula o evento que o onMessage receberia
+            const payload = {
+                notification: {
+                    title: "Teste do T-FIT",
+                    body: "Sua notificação está funcionando perfeitamente! 🚀"
+                }
+            };
+
+            console.log("Simulando onMessage com payload:", payload);
+
+            // Trigger logic manually for testing
+            if (window.UI && window.UI.showNotification) {
+                window.UI.showNotification(payload.notification.title, payload.notification.body, 'info');
+            }
+        }
+    </script>
+</body>
+
+</html>

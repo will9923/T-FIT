@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>T-FIT - Meu App Personal</title>
+    <meta name="description" content="T-FIT - Sistema completo de gestão para personal trainers e alunos">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+    <!-- DEBUG: Global Error Handler -->
+    <script>
+        window.onerror = function (msg, url, line, col, error) {
+            console.error('ERRO GLOBAL:', msg, 'at', url, ':', line);
+
+            // Log details for debugging
+            if (error && error.stack) console.error(error.stack);
+
+            // Ignore noise (extensions, browser internal errors, minor layout issues)
+            if (msg.includes('Extension') || msg.includes('ResizeObserver') || msg.includes('Script error')) return;
+
+            const loader = document.getElementById('loading-overlay');
+            const app = document.getElementById('app');
+
+            if (!app || app.innerHTML.trim() === '' || app.innerHTML.includes('spinner')) {
+                if (loader) loader.classList.add('hidden');
+            }
+
+            // We removed the UI.showNotification here to prevent annoying persistent error messages
+            // for minor issues that don't break the app experience.
+
+            return false;
+        };
+
+        window.onunhandledrejection = function (event) {
+            console.error("PROMISE REJEITADA:", event.reason);
+            // Ignore minor promise rejections
+        };
+
+        // Watchdog: Timeout for loading (12s)
+        setTimeout(() => {
+            const loader = document.getElementById('loading-overlay');
+            if (loader && !loader.classList.contains('hidden')) {
+                const emergency = document.getElementById('emergency-enter-container');
+                if (emergency) emergency.classList.remove('hidden');
+
+                const toast = document.createElement('div');
+                toast.innerText = '⚠️ O carregamento está lento. Você pode tentar entrar mesmo assim.';
+                toast.style.cssText = 'position:fixed;bottom:100px;left:50%;transform:translateX(-50%);background:#dc2626;color:white;padding:12px 20px;border-radius:12px;z-index:99999;box-shadow:0 4px 12px rgba(0,0,0,0.3);font-weight:bold;text-align:center;width:90%;max-width:400px;';
+                document.body.appendChild(toast);
+                setTimeout(() => toast.remove(), 6000);
+            }
+        }, 12000);
+    </script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+    <!-- html2canvas for Sharing -->
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+
+
+
+
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="style.css?v=14.13">
+    <link rel="stylesheet" href="responsive-fix.css?v=14.13">
+    <link rel="stylesheet" href="tfeed-v2.css?v=2.0">
+
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#dc2626">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="./logo.png">
+    <link rel="shortcut icon" href="./logo.png" type="image/png">
+
+    <style>
+        /* CRITICAL INLINE CSS (Prevents Black Screen if style.css hangs) */
+        .loading-overlay {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            background: #000000 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            z-index: 999999 !important;
+            flex-direction: column !important;
+            transition: opacity 0.6s ease-out;
+        }
+
+        .loading-overlay.fade-out {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .loading-overlay.hidden {
+            display: none !important;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Splash Video Styles */
+        #splash-video {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            min-width: 100%;
+            min-height: 100%;
+            width: auto;
+            height: auto;
+            object-fit: cover;
+            z-index: 1;
+        }
+
+        .splash-fallback {
+            position: relative;
+            z-index: 2;
+            color: white;
+            text-align: center;
+            display: none;
+        }
+
+        .splash-fallback .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.1);
+            border-top: 5px solid #dc2626;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .splash-emergency {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 3;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Notifications Area -->
+    <div id="notification-container"></div>
+
+
+    <!-- Splash / Loading Overlay with Video -->
+    <div id="loading-overlay" class="loading-overlay">
+        <!-- Splash Video -->
+        <video id="splash-video" autoplay muted playsinline preload="auto">
+            <source src="splash-video.mp4" type="video/mp4">
+        </video>
+
+        <!-- Fallback if video fails to load -->
+        <div class="splash-fallback" id="splash-fallback">
+            <div class="spinner"></div>
+            <h2 style="margin-bottom: 10px;">T-FIT</h2>
+            <p id="loading-text">Carregando...</p>
+        </div>
+
+        <!-- Emergency Enter Button -->
+        <div class="splash-emergency">
+            <div id="emergency-enter-container" class="hidden">
+                <button onclick="UI.hideLoading()" class="btn btn-outline"
+                    style="color: white; border-color: rgba(255,255,255,0.3); background: rgba(0,0,0,0.5); backdrop-filter: blur(10px); padding: 10px 24px; border-radius: 30px; font-size: 13px; cursor: pointer;">
+                    Entrar mesmo assim (Modo Emergência)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Splash Video Controller -->
+    <script>
+        (function () {
+            const video = document.getElementById('splash-video');
+            const fallback = document.getElementById('splash-fallback');
+
+            if (video) {
+                // Loop video while loading
+                video.loop = true;
+
+                // Fallback if video fails
+                video.addEventListener('error', function () {
+                    console.warn('[Splash] Video failed to load, showing fallback');
+                    video.style.display = 'none';
+                    if (fallback) fallback.style.display = 'block';
+                });
+
+                // Try to force play on mobile
+                const CACHE_NAME = 'tfit-v14.11';
+                const Play = function () {
+                    video.play().catch(function () {
+                        console.warn('Autoplay blocked, showing fallback');
+                        video.style.display = 'none';
+                        if (fallback) fallback.style.display = 'block';
+                    });
+                };
+
+                // Attempt play immediately and on first user interaction
+                tryPlay();
+                document.addEventListener('touchstart', tryPlay, { once: true });
+                document.addEventListener('click', tryPlay, { once: true });
+            } else {
+                if (fallback) fallback.style.display = 'block';
+            }
+        })();
+    </script>
+
+    <!-- Main App Container -->
+    <div id="app">
+        <!-- Content will be dynamically rendered here -->
+    </div>
+
+    <!-- Modal Container -->
+    <div id="modal-container"></div>
+
+    <!-- Supabase SDK (Substitui Firebase) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script defer src="supabase-config.js"></script>
+
+
+    <!-- Native Bridge (Capacitor) -->
+    <script src="capacitor.js"></script>
+    <script src="native-bridge.js"></script>
+
+    <!-- Main App Script -->
+    <script defer src="auth-manager.js?v=14.16"></script>
+    <script defer src="app.js?v=14.16"></script>
+    <script defer src="workout-db.js?v=14.7"></script>
+    <script defer src="nutrition-db.js?v=14.7"></script>
+    <script defer src="media-manager.js?v=14.7"></script>
+    <script defer src="ai-config.js?v=14.7"></script>
+    <script defer src="ai-generator.js?v=14.7"></script>
+    <script defer src="push-notifications.js?v=14.7"></script>
+    <script defer src="notifications-page.js?v=14.7"></script>
+
+    <!-- Module Scripts -->
+    <script defer src="payment-helper.js?v=14.16"></script>
+    <script defer src="payment-pages.js?v=14.16"></script>
+    <script defer src="admin-pages.js?v=14.16"></script>
+    <script defer src="personal-pages.js?v=14.16"></script>
+    <script defer src="personal-features.js?v=14.16"></script>
+    <script defer src="student-pages.js?v=14.16"></script>
+
+    <!-- Mapbox (Unico Mapa Ativo) -->
+    <script defer src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+    <script defer src="waze-fitness-v2.js?v=2.1"></script>
+    <script defer src="student-auth.js?v=14.4"></script>
+    <script defer src="student-marketplace.js?v=14.4"></script>
+    <script defer src="personal-plans.js?v=14.4"></script>
+    <script defer src="student-plan.js?v=14.4"></script>
+    <script defer src="tfeed-v2.js?v=2.0"></script>
+    <script defer src="tfit-hub.js?v=14.4"></script>
+    <script defer src="personal-auth.js?v=14.4"></script>
+    <!-- DEBUG OVERRIDE -->
+    <!-- <script src="debug-student.js?v=9.9"></script> -->
+
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(registration => {
+                        console.log('SW v14.10 registrado');
+
+                        // Check for updates periodically
+                        registration.update();
+
+                        // Detect new version
+                        registration.addEventListener('updatefound', () => {
+                            const newWorker = registration.installing;
+                            newWorker.addEventListener('statechange', () => {
+                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                    UI.showNotification(
+                                        'Nova Versão Disponível',
+                                        'Clique aqui para atualizar e ver as mudanças. <br><button class="btn btn-sm btn-primary mt-xs" onclick="location.reload()">Reiniciar Agora</button>',
+                                        'info'
+                                    );
+                                }
+                            });
+                        });
+                    })
+                    .catch(err => console.log('SW falhou:', err));
+            });
+        }
+    </script>
+
+</body>
+
+</html>
