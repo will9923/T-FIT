@@ -16,13 +16,19 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
+          node-version: '20'
+
+      - name: List Files
+        run: ls -R
+
+      - name: Install Capacitor CLI
+        run: npm install -g @capacitor/cli
 
       - name: Install Dependencies
         run: |
           npm install --legacy-peer-deps
           mkdir -p www
-          echo "<html><body>TFIT Remote App</body></html>" > www/index.html
+          echo "<html><body>TFIT</body></html>" > www/index.html
           npx cap sync android
 
       - name: Setup Java
@@ -31,14 +37,7 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Decode Keystore
-        if: env.HAS_KEYSTORE == 'true'
-        run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_FILE }}" | base64 --decode > android/app/release-key.jks
-        env:
-          HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_FILE != '' }}
-
-      - name: Build Android APK (Debug)
+      - name: Build Android APK
         run: |
           cd android
           chmod +x gradlew
@@ -50,20 +49,19 @@ jobs:
           name: tfit-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Build Android AAB (Release Signed)
-        if: env.HAS_SECRETS == 'true'
+      - name: Build Android AAB
+        if: secrets.ANDROID_KEYSTORE_FILE != ''
         run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_FILE }}" | base64 --decode > android/app/release-key.jks
           cd android
           ./gradlew bundleRelease \
             -Pandroid.injected.signing.store.file=release-key.jks \
             -Pandroid.injected.signing.store.password=${{ secrets.ANDROID_KEYSTORE_PASSWORD }} \
             -Pandroid.injected.signing.key.alias=${{ secrets.ANDROID_KEY_ALIAS }} \
             -Pandroid.injected.signing.key.password=${{ secrets.ANDROID_KEY_PASSWORD }}
-        env:
-          HAS_SECRETS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD != '' }}
 
-      - name: Upload AAB (Ready for Play Store)
-        if: env.HAS_SECRETS == 'true'
+      - name: Upload AAB
+        if: secrets.ANDROID_KEYSTORE_FILE != ''
         uses: actions/upload-artifact@v3
         with:
           name: tfit-release-bundle
