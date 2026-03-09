@@ -46,10 +46,10 @@ jobs:
       - name: Build Android AAB
         run: |
           if [ -n "${{ secrets.ANDROID_KEYSTORE_FILE }}" ]; then
-            echo "${{ secrets.ANDROID_KEYSTORE_FILE }}" | base64 --decode > android/app/release-key.jks
+            echo "${{ secrets.ANDROID_KEYSTORE_FILE }}" | base64 --decode > $GITHUB_WORKSPACE/release-key.jks
             cd android
             ./gradlew bundleRelease \
-              -Pandroid.injected.signing.store.file=release-key.jks \
+              -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/release-key.jks \
               -Pandroid.injected.signing.store.password=${{ secrets.ANDROID_KEYSTORE_PASSWORD }} \
               -Pandroid.injected.signing.key.alias=${{ secrets.ANDROID_KEY_ALIAS }} \
               -Pandroid.injected.signing.key.password=${{ secrets.ANDROID_KEY_PASSWORD }}
