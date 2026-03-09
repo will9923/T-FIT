@@ -16,7 +16,7 @@ const NativeApp = {
 
     setupOneSignal: async function () {
         try {
-            const ONESIGNAL_APP_ID = "YOUR-ONESIGNAL-APP-ID"; // Configurar no OneSignal.com
+            const ONESIGNAL_APP_ID = "f846c4f5-51cb-490f-bd3a-f2299883909d"; // Configurado o ID real do usuário
 
             if (window.plugins && window.plugins.OneSignal) {
                 const OneSignal = window.plugins.OneSignal;
