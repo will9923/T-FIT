@@ -18,12 +18,6 @@ jobs:
         with:
           node-version: '20'
 
-      - name: List Files
-        run: ls -R
-
-      - name: Install Capacitor CLI
-        run: npm install -g @capacitor/cli
-
       - name: Install Dependencies
         run: |
           npm install --legacy-peer-deps
@@ -50,7 +44,7 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Build Android AAB
-        if: secrets.ANDROID_KEYSTORE_FILE != ''
+        if: ${{ secrets.ANDROID_KEYSTORE_FILE != '' }}
         run: |
           echo "${{ secrets.ANDROID_KEYSTORE_FILE }}" | base64 --decode > android/app/release-key.jks
           cd android
@@ -61,7 +55,7 @@ jobs:
             -Pandroid.injected.signing.key.password=${{ secrets.ANDROID_KEY_PASSWORD }}
 
       - name: Upload AAB
-        if: secrets.ANDROID_KEYSTORE_FILE != ''
+        if: ${{ secrets.ANDROID_KEYSTORE_FILE != '' }}
         uses: actions/upload-artifact@v3
         with:
           name: tfit-release-bundle
