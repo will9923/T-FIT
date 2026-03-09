@@ -44,19 +44,22 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Build Android AAB
-        if: ${{ secrets.ANDROID_KEYSTORE_FILE != '' }}
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_FILE }}" | base64 --decode > android/app/release-key.jks
-          cd android
-          ./gradlew bundleRelease \
-            -Pandroid.injected.signing.store.file=release-key.jks \
-            -Pandroid.injected.signing.store.password=${{ secrets.ANDROID_KEYSTORE_PASSWORD }} \
-            -Pandroid.injected.signing.key.alias=${{ secrets.ANDROID_KEY_ALIAS }} \
-            -Pandroid.injected.signing.key.password=${{ secrets.ANDROID_KEY_PASSWORD }}
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_FILE }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_FILE }}" | base64 --decode > android/app/release-key.jks
+            cd android
+            ./gradlew bundleRelease \
+              -Pandroid.injected.signing.store.file=release-key.jks \
+              -Pandroid.injected.signing.store.password=${{ secrets.ANDROID_KEYSTORE_PASSWORD }} \
+              -Pandroid.injected.signing.key.alias=${{ secrets.ANDROID_KEY_ALIAS }} \
+              -Pandroid.injected.signing.key.password=${{ secrets.ANDROID_KEY_PASSWORD }}
+          else
+            echo "Skipping signed AAB build because secrets are not set."
+          fi
 
       - name: Upload AAB
-        if: ${{ secrets.ANDROID_KEYSTORE_FILE != '' }}
         uses: actions/upload-artifact@v3
         with:
           name: tfit-release-bundle
           path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: warn
