@@ -121,17 +121,20 @@ class TFeedV2 {
         const container = document.getElementById(containerId);
         if (!container) return;
 
-        container.innerHTML = `
-            <div id="tfeed-v2-wrapper" class="fade-in" style="position: fixed; inset: 0; z-index: 99999; background: #000; overflow-y: auto;">
-                ${this.renderHeader()}
-                <main id="tfeed-v2-content" style="min-height: 80vh; padding-bottom: 90px;">
-                    ${this.renderLoadingState()}
-                </main>
-                ${this.renderBottomNav()}
-            </div>
-        `;
+        // Check if wrapper already exists to avoid flickering
+        if (!document.getElementById('tfeed-v2-wrapper')) {
+            container.innerHTML = `
+                <div id="tfeed-v2-wrapper" class="fade-in" style="position: fixed; inset: 0; z-index: 99999; background: #000; overflow-y: auto;">
+                    ${this.renderHeader()}
+                    <main id="tfeed-v2-content" style="min-height: 80vh; padding-bottom: 90px;">
+                        ${this.renderLoadingState()}
+                    </main>
+                    ${this.renderBottomNav()}
+                </div>
+            `;
+        }
 
-        // Inject CSS if not already there
+        // If CSS not present, add it
         if (!document.getElementById('tfeed-v2-css')) {
             const link = document.createElement('link');
             link.id = 'tfeed-v2-css';
@@ -187,10 +190,35 @@ class TFeedV2 {
     }
 
     renderLoadingState() {
+        let storiesSkeleton = '';
+        for (let i = 0; i < 5; i++) {
+            storiesSkeleton += `
+                <div style="min-width: 85px; display:flex; flex-direction:column; align-items:center;">
+                    <div class="tf-v2-skeleton skeleton-circle" style="width:75px; height:75px;"></div>
+                    <div class="tf-v2-skeleton skeleton-title" style="width:40px; height:10px;"></div>
+                </div>
+            `;
+        }
+
+        let feedSkeleton = '';
+        for (let i = 0; i < 2; i++) {
+            feedSkeleton += `
+                <div class="p-md">
+                    <div class="tf-v2-skeleton skeleton-title" style="width:30%;"></div>
+                    <div class="tf-v2-skeleton skeleton-media"></div>
+                    <div class="tf-v2-skeleton skeleton-title" style="width:80%; margin-top:20px;"></div>
+                </div>
+            `;
+        }
+
         return `
-            <div class="tf-v2-loading p-xl text-center">
-                <div class="spinner-border text-primary" role="status"></div>
-                <p class="mt-md text-muted">Sincronizando feed...</p>
+            <div class="tf-v2-loading fade-in">
+                <div class="tf-v2-stories-bar mb-lg">
+                    ${storiesSkeleton}
+                </div>
+                <div class="tf-v2-feed-stream">
+                    ${feedSkeleton}
+                </div>
             </div>
         `;
     }
@@ -260,8 +288,9 @@ class TFeedV2 {
 
         let html = `
             <div class="tf-v2-story-item" onclick="${hasMyStories ? `tfeed.viewStories('${this.currentUser.id}')` : 'tfeed.triggerStoryUpload()'}" style="cursor: pointer; min-width: 85px;">
-                <div class="tf-v2-story-ring ${hasMyStories ? '' : 'plus'}">
+                <div class="tf-v2-story-ring ${hasMyStories ? 'has-stories' : ''}">
                     <img src="${this.currentUser.photo_url || this.currentUser.photo || './logo.png'}" class="tf-v2-story-avatar">
+                    <div class="tf-v2-story-plus-badge" onclick="event.stopPropagation(); tfeed.triggerStoryUpload()">+</div>
                 </div>
                 <span class="tf-v2-story-name">Seu Story</span>
                 <input type="file" id="direct-story-input" accept="image/*,video/*" style="display: none;" onchange="tfeed.handleDirectStoryUpload(this)">
@@ -541,72 +570,138 @@ class TFeedV2 {
         `;
     }
 
+    // ============================================
+    // VIEW: DIRECT MESSAGING (PREMIUM v2.0)
+    // ============================================
+
     async renderDirect() {
         const main = document.getElementById('tfeed-v2-content');
         if (!main) return;
 
-        main.innerHTML = `<div class="p-xl text-center"><div class="spinner-border text-primary"></div> Carregando conversas...</div>`;
+        if (!this.currentUser) {
+            this.currentUser = auth.getCurrentUser();
+            if (!this.currentUser) {
+                main.innerHTML = '<div class="p-xl text-center text-muted">Aguardando autenticação... Se o erro persistir, faça login novamente.</div>';
+                return;
+            }
+        }
+
+        main.innerHTML = `
+            <div class="tf-v2-direct-title">
+                <span>Mensagens</span>
+                <i class="bi bi-pencil-square" style="cursor: pointer;" onclick="tfeed.openNewChat()"></i>
+            </div>
+            <div class="tf-v2-inbox-loading p-xl text-center">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="text-xs mt-md">Sincronizando inbox...</p>
+            </div>
+        `;
 
         try {
-            const { data: participations } = await supabase.from('conversation_participants')
-                .select('conversation_id')
-                .eq('user_id', this.currentUser.id);
+            console.log('[T-Feed] Carregando inbox para:', this.currentUser.id);
 
-            const convIds = participations?.map(p => p.conversation_id) || [];
+            // Get conversations where user is a participant
+            const { data: participations, error } = await supabase
+                .from('conversation_participants')
+                .select(`
+                    id:conversation_id,
+                    unread_count,
+                    conversations(id, last_message, last_message_at, last_message_sender_id)
+                `)
+                .eq('user_id', this.currentUser.id)
+                .order('unread_count', { ascending: false });
 
-            if (convIds.length === 0) {
+            if (error) {
+                console.error('[T-Feed Direct Error]', error);
+                throw error;
+            }
+
+            if (!participations || participations.length === 0) {
                 main.innerHTML = `
                     <div class="tf-v2-direct-title">
                         <span>Mensagens</span>
                         <i class="bi bi-pencil-square" style="cursor: pointer;" onclick="tfeed.openNewChat()"></i>
                     </div>
                     <div class="p-xl text-center fade-in">
-                        <i class="bi bi-chat-heart" style="font-size: 60px; color: var(--tf-accent);"></i>
-                        <h2 class="mt-md">Mensagens Diretas</h2>
-                        <p class="text-muted">Inicie uma conversa com seus amigos.</p>
-                        <button class="btn btn-primary mt-lg" onclick="tfeed.openNewChat()">NOVA CONVERSA</button>
+                        <i class="bi bi-chat-heart" style="font-size: 80px; color: var(--tf-cyan); opacity:0.3;"></i>
+                        <h2 class="mt-md">Mensagens</h2>
+                        <p class="text-muted text-sm px-xl">Suas mensagens e conversas aparecerão aqui. Clique no ícone de lápis para começar.</p>
+                        <button class="btn btn-primary mt-xl" style="border-radius:30px; padding:12px 30px;" onclick="tfeed.openNewChat()">Nova Conversa</button>
                     </div>
                 `;
                 return;
             }
 
-            const { data: conversations } = await supabase.from('conversation_participants')
-                .select('conversation_id, user_id, profiles(name, photo, photo_url, is_verified)')
+            // Fetch other participants info
+            const convIds = participations.map(p => p.id);
+            const { data: others, error: othersError } = await supabase
+                .from('conversation_participants')
+                .select('conversation_id, user_id, profiles(name, photo_url, photo, is_verified)')
                 .in('conversation_id', convIds)
                 .neq('user_id', this.currentUser.id);
 
-            main.innerHTML = `
+            if (othersError) throw othersError;
+
+            const inboxHtml = `
                 <div class="tf-v2-direct-title">
                     <span>Mensagens</span>
                     <i class="bi bi-pencil-square" style="cursor: pointer;" onclick="tfeed.openNewChat()"></i>
                 </div>
-                <div class="tf-v2-conv-list">
-                    ${conversations.map(c => `
-                        <div class="tf-v2-conv-item" onclick="tfeed.openChatRoom('${c.conversation_id}', '${c.user_id}')">
-                            <img src="${c.profiles.photo_url || c.profiles.photo || './logo.png'}" class="tf-v2-conv-avatar">
-                            <div class="tf-v2-conv-info">
-                                <div class="tf-v2-conv-name">${c.profiles.name} ${c.profiles.is_verified ? '<i class="bi bi-patch-check-fill text-primary"></i>' : ''}</div>
-                                <div class="tf-v2-conv-last">Tocar para conversar</div>
+                <div class="tf-v2-inbox fade-in">
+                    ${participations.map(p => {
+                        const other = others.find(o => o.conversation_id === p.id);
+                        if (!other) return '';
+                        const conv = p.conversations;
+                        const profile = other.profiles;
+                        const timestamp = conv.last_message_at ? this.timeAgo(conv.last_message_at) : '';
+                        const lastMsg = conv.last_message || 'Inicie uma conversa';
+                        const isUnread = p.unread_count > 0;
+
+                        return `
+                            <div class="tf-v2-conv-item" onclick="tfeed.openChatRoom('${p.id}', '${other.user_id}')">
+                                <div class="tf-v2-avatar-wrap">
+                                    <img src="${profile.photo_url || profile.photo || './logo.png'}" class="tf-v2-conv-avatar">
+                                    <div class="tf-v2-online-badge"></div>
+                                </div>
+                                <div class="tf-v2-conv-info">
+                                    <div class="tf-v2-conv-name">
+                                        ${profile.name} ${profile.is_verified ? '<i class="bi bi-patch-check-fill text-primary"></i>' : ''}
+                                    </div>
+                                    <div class="tf-v2-conv-meta">
+                                        <span class="tf-v2-last-msg ${isUnread ? 'text-white font-bold' : ''}">${lastMsg}</span>
+                                        <span class="separator">•</span>
+                                        <span class="tf-v2-time">${timestamp}</span>
+                                    </div>
+                                </div>
+                                ${isUnread ? '<div class="tf-v2-unread-tag"></div>' : ''}
                             </div>
-                        </div>
-                    `).join('')}
+                        `;
+                    }).join('')}
                 </div>
             `;
+
+            main.innerHTML = inboxHtml;
         } catch (err) {
-            console.error(err);
-            main.innerHTML = '<div class="p-xl text-center">Falha ao carregar as mensagens.</div>';
+            console.error('[T-Feed Direct] Inbox Load Error:', err);
+            main.innerHTML = `<div class="p-xl text-center text-muted">
+                <div>Erro ao carregar mensagens.</div>
+                <div class="text-xs mt-sm opacity-50">${err.message || 'Erro desconhecido'}</div>
+                <button class="btn btn-sm btn-ghost mt-md" onclick="tfeed.renderDirect()">Tentar Novamente</button>
+            </div>`;
         }
     }
 
     async openNewChat() {
-        UI.showModal('Nova Mensagem', `
+        UI.showModal('Nova Conversa', `
             <div class="p-md">
                 <div class="auth-search-bar tf-v2-glass-pill mb-md">
                     <i class="bi bi-search mr-sm"></i>
-                    <input type="text" id="chat-user-search" placeholder="Pesquisar..." class="flex-1" style="background:none; border:none; color:#fff; outline:none;" oninput="tfeed.searchChatUsers(this.value)">
+                    <input type="text" id="chat-user-search" placeholder="Pesquisar..." class="flex-1" 
+                           style="background:none; border:none; color:#fff; outline:none;" 
+                           oninput="tfeed.searchChatUsers(this.value)">
                 </div>
                 <div id="chat-search-results" style="max-height: 400px; overflow-y: auto;">
-                    <div class="text-center p-md text-muted">Aguardando pesquisa...</div>
+                    <div class="text-center p-md text-muted">Digite o nome para pesquisar atletas...</div>
                 </div>
             </div>
         `);
@@ -643,28 +738,14 @@ class TFeedV2 {
     async openDirectChat(targetId) {
         UI.showLoading('Iniciando chat...');
         try {
-            // Find existing conversation
-            const { data: myConvs } = await supabase.from('conversation_participants').select('conversation_id').eq('user_id', this.currentUser.id);
-            const { data: theirConvs } = await supabase.from('conversation_participants').select('conversation_id').eq('user_id', targetId);
+            const { data: convId, error } = await supabase.rpc('get_or_create_conversation', {
+                user1_id: this.currentUser.id,
+                user2_id: targetId
+            });
 
-            const myConvIds = myConvs?.map(c => c.conversation_id) || [];
-            const commonConv = theirConvs?.find(c => myConvIds.includes(c.conversation_id));
+            if (error) throw error;
 
-            let conversationId = commonConv?.conversation_id;
-
-            if (!conversationId) {
-                // Create new conversation
-                const { data: newConv, error: convErr } = await supabase.from('conversations').insert({}).select().single();
-                if (convErr) throw convErr;
-                conversationId = newConv.id;
-
-                await supabase.from('conversation_participants').insert([
-                    { conversation_id: conversationId, user_id: this.currentUser.id },
-                    { conversation_id: conversationId, user_id: targetId }
-                ]);
-            }
-
-            this.openChatRoom(conversationId, targetId);
+            this.openChatRoom(convId, targetId);
             UI.hideLoading();
         } catch (err) {
             UI.hideLoading();
@@ -675,89 +756,378 @@ class TFeedV2 {
 
     async openChatRoom(conversationId, targetId) {
         this.activeChat = conversationId;
-        const main = document.getElementById('tfeed-v2-content');
-        if (!main) return;
+        const wrapper = document.getElementById('tfeed-v2-wrapper');
+        if (!wrapper) return;
 
+        // Try to find target user profile
+        let targetProfile = null;
         try {
-            const { data: targetProfile } = await supabase.from('profiles').select('name, photo_url, photo').eq('id', targetId).single();
+            const { data } = await supabase.from('profiles').select('*').eq('id', targetId).single();
+            targetProfile = data;
+        } catch (e) { console.warn('Could not load profile'); }
 
-            main.innerHTML = `
-                <div class="tf-v2-chat-container">
-                    <div class="tf-v2-chat-header">
-                        <i class="bi bi-arrow-left tf-v2-chat-back" onclick="tfeed.renderView('direct')"></i>
-                        <img src="${targetProfile?.photo_url || targetProfile?.photo || './logo.png'}" style="width: 32px; height: 32px; border-radius: 50%;">
-                        <b id="chat-target-name">${targetProfile?.name || 'Carregando...'}</b>
-                    </div>
-                    <div id="chat-messages" class="tf-v2-chat-messages">
-                        <div class="text-center p-xl"><div class="spinner-border text-primary"></div></div>
-                    </div>
-                    <div class="tf-v2-chat-input-area">
-                        <div class="tf-v2-chat-input-wrapper">
-                            <input type="text" id="chat-msg-input" class="tf-v2-chat-input" placeholder="Enviar mensagem..." onkeypress="if(event.key==='Enter') tfeed.sendMessageDirect('${conversationId}', '${targetId}')">
-                        </div>
-                        <button class="btn btn-sm btn-primary" onclick="tfeed.sendMessageDirect('${conversationId}', '${targetId}')" style="border-radius: 20px;">Enviar</button>
+        const chatOverlay = document.createElement('div');
+        chatOverlay.className = 'tf-v2-chat-container';
+        chatOverlay.id = 'chat-overlay';
+        chatOverlay.innerHTML = `
+            <div class="tf-v2-chat-header">
+                <i class="bi bi-chevron-left tf-v2-chat-back" onclick="tfeed.closeChat()"></i>
+                <img src="${targetProfile?.photo_url || './logo.png'}" class="tf-v2-chat-avatar">
+                <div class="flex-1">
+                    <div class="tf-v2-conv-name">${targetProfile?.name || 'Carregando...'}</div>
+                    <div class="text-xs text-green-500">Ativo agora</div>
+                </div>
+                <div class="tf-v2-chat-actions" style="display:flex; gap:15px; font-size:20px; color:var(--tf-cyan)">
+                    <i class="bi bi-telephone-fill" style="cursor:pointer" onclick="tfeed.startCall('audio', '${targetId}')"></i>
+                    <i class="bi bi-camera-video-fill" style="cursor:pointer" onclick="tfeed.startCall('video', '${targetId}')"></i>
+                </div>
+            </div>
+            
+            <div id="chat-messages" class="tf-v2-chat-messages">
+                <div class="text-center p-xl"><div class="spinner-border text-primary spinner-border-sm"></div></div>
+            </div>
+
+            <div id="chat-preview-media" class="hidden" style="padding:10px 15px; background:#111; border-top:1px solid #333;"></div>
+
+            <div class="tf-v2-chat-input-area">
+                <div class="tf-v2-input-main-wrap">
+                    <button class="tf-v2-input-btn" onclick="tfeed.triggerMediaUpload()"><i class="bi bi-camera"></i></button>
+                    <textarea id="chat-msg-input" class="tf-v2-chat-input" placeholder="Mensagem..." rows="1" oninput="tfeed.toggleSendBtn(this)"></textarea>
+                    
+                    <div id="chat-send-actions" style="display:flex; align-items:center;">
+                        <button id="record-audio-btn" class="tf-v2-input-btn" onmousedown="tfeed.startRecording()" onmouseup="tfeed.stopRecording()" ontouchstart="tfeed.startRecording()" ontouchend="tfeed.stopRecording()">
+                            <i class="bi bi-mic"></i>
+                        </button>
+                        <button class="tf-v2-input-btn" onclick="tfeed.triggerFileUpload()"><i class="bi bi-paperclip"></i></button>
+                        <div id="btn-send-dm" class="tf-v2-send-btn" onclick="tfeed.sendDmMessage()">Enviar</div>
                     </div>
                 </div>
-            `;
+                <!-- Hidden Inputs -->
+                <input type="file" id="dm-media-input" accept="image/*,video/*" style="display:none" onchange="tfeed.onMediaSelected(this)">
+                <input type="file" id="dm-file-input" style="display:none" onchange="tfeed.onFileSelected(this)">
+            </div>
+        `;
 
-            this.loadMessages(conversationId);
-        } catch (err) { console.error(err); }
+        wrapper.appendChild(chatOverlay);
+        this.loadMessages(conversationId);
+        this.markAsRead(conversationId);
+    }
+
+    closeChat() {
+        const chat = document.getElementById('chat-overlay');
+        if (chat) chat.remove();
+        this.activeChat = null;
+        this.renderDirect();
     }
 
     async loadMessages(conversationId) {
+        const container = document.getElementById('chat-messages');
+        if (!container) return;
+
         try {
-            const { data: messages } = await supabase.from('messages')
+            const { data: messages, error } = await supabase
+                .from('messages')
                 .select('*')
                 .eq('conversation_id', conversationId)
                 .order('created_at', { ascending: true });
 
-            const container = document.getElementById('chat-messages');
-            if (!container) return;
+            if (error) throw error;
 
-            if (!messages?.length) {
-                container.innerHTML = '<div class="text-center p-xl text-muted text-xs">Comece a conversa com um "Oi!" 👋</div>';
+            if (!messages || messages.length === 0) {
+                container.innerHTML = `
+                    <div class="p-xl text-center" style="margin-top:auto">
+                        <i class="bi bi-chat-dots" style="font-size:40px; color:var(--tf-border)"></i>
+                        <p class="text-muted text-sm mt-md">Nenhuma mensagem ainda.<br>Diga oi para começar!</p>
+                    </div>
+                `;
                 return;
             }
 
-            container.innerHTML = messages.map(m => `
-                <div class="tf-v2-message ${m.sender_id === this.currentUser.id ? 'sent' : 'received'}">
-                    ${m.content}
-                </div>
-            `).join('');
-
+            container.innerHTML = messages.map(m => this.renderMessage(m)).join('');
             container.scrollTop = container.scrollHeight;
-        } catch (err) { console.error(err); }
+        } catch (err) {
+            console.error('[T-Feed Chat] Message Load Error:', err);
+            container.innerHTML = '<div class="p-xl text-center text-muted">Erro ao carregar conversa.</div>';
+        }
     }
 
-    async sendMessageDirect(conversationId, targetId) {
-        const input = document.getElementById('chat-msg-input');
-        const text = input?.value?.trim();
-        if (!text) return;
+    renderMessage(m) {
+        const isMe = m.sender_id === this.currentUser.id;
+        let contentHtml = '';
 
-        input.value = '';
+        switch (m.type) {
+            case 'text':
+                contentHtml = `<div class="tf-v2-message ${isMe ? 'sent' : 'received'}">${m.content}</div>`;
+                break;
+            case 'image':
+                contentHtml = `
+                    <div class="msg-media-container ${isMe ? 'sent' : 'received'}">
+                        <img src="${m.media_url}" onclick="window.open('${m.media_url}', '_blank')">
+                        ${m.content ? `<div class="p-sm text-sm">${m.content}</div>` : ''}
+                    </div>
+                `;
+                break;
+            case 'video':
+                contentHtml = `
+                    <div class="msg-media-container ${isMe ? 'sent' : 'received'}">
+                        <video src="${m.media_url}" controls playsinline></video>
+                        ${m.content ? `<div class="p-sm text-sm">${m.content}</div>` : ''}
+                    </div>
+                `;
+                break;
+            case 'audio':
+                contentHtml = `
+                    <div class="tf-v2-message ${isMe ? 'sent' : 'received'}">
+                        <div class="audio-msg">
+                            <div class="audio-btn" onclick="tfeed.playAudio('${m.media_url}', this)">
+                                <i class="bi bi-play-fill"></i>
+                            </div>
+                            <div class="audio-progress">
+                                <div class="audio-progress-fill"></div>
+                            </div>
+                            <span class="text-xs">0:00</span>
+                        </div>
+                    </div>
+                `;
+                break;
+            case 'file':
+                contentHtml = `
+                    <div class="tf-v2-message ${isMe ? 'sent' : 'received'}" onclick="window.open('${m.media_url}', '_blank')" style="cursor:pointer">
+                        <div class="flex items-center gap-sm">
+                            <i class="bi bi-file-earmark-arrow-down" style="font-size:20px"></i>
+                            <div>
+                                <div class="text-sm font-bold truncate" style="max-width:140px">${m.content || 'Arquivo'}</div>
+                                <div class="text-xs opacity-60">Baixar arquivo</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                break;
+        }
+
+        return `
+            <div class="msg-wrapper ${isMe ? 'sent' : 'received'}">
+                ${contentHtml}
+                <div class="text-xs mt-xs mx-sm" style="opacity:0.3; align-self:${isMe ? 'flex-end' : 'flex-start'}">
+                    ${new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+            </div>
+        `;
+    }
+
+    toggleSendBtn(input) {
+        const sendBtn = document.getElementById('btn-send-dm');
+        const micBtn = document.getElementById('record-audio-btn');
+        if (input.value.trim().length > 0) {
+            sendBtn.style.display = 'block';
+            micBtn.style.display = 'none';
+        } else {
+            sendBtn.style.display = 'none';
+            micBtn.style.display = 'flex';
+        }
+        input.style.height = 'auto';
+        input.style.height = (input.scrollHeight) + 'px';
+    }
+
+    async sendDmMessage() {
+        const input = document.getElementById('chat-msg-input');
+        const text = input.value.trim();
+        const convId = this.activeChat;
+
+        if (!text && !this._pendingMediaFile) return;
 
         try {
-            await supabase.from('messages').insert({
-                conversation_id: conversationId,
-                sender_id: this.currentUser.id,
-                content: text,
-                message_type: 'text'
+            let mediaUrl = null;
+            let type = 'text';
+
+            if (this._pendingMediaFile) {
+                UI.showLoading('Enviando mídia...');
+                const file = this._pendingMediaFile;
+                const fileExt = file.name.split('.').pop();
+                const fileName = `dm_${Date.now()}.${fileExt}`;
+                const { data: uploadData, error: uploadErr } = await supabase.storage.from('dm_media').upload(`${convId}/${fileName}`, file);
+                
+                if (uploadErr) throw uploadErr;
+                const { data: { publicUrl } } = supabase.storage.from('dm_media').getPublicUrl(`${convId}/${fileName}`);
+                
+                mediaUrl = publicUrl;
+                type = file.type.startsWith('image/') ? 'image' : (file.type.startsWith('video/') ? 'video' : 'file');
+                
+                this._pendingMediaFile = null;
+                document.getElementById('chat-preview-media').classList.add('hidden');
+                UI.hideLoading();
+            }
+
+            const { error: rpcErr } = await supabase.rpc('send_premium_message', {
+                p_conv_id: convId,
+                p_sender_id: this.currentUser.id,
+                p_type: type,
+                p_content: text || '',
+                p_media_url: mediaUrl
             });
 
-            this.loadMessages(conversationId);
+            if (rpcErr) {
+                console.error('[T-Feed Direct RPC Error]', rpcErr);
+                throw rpcErr;
+            }
+
+            input.value = '';
+            this.toggleSendBtn(input);
+            this.loadMessages(convId);
         } catch (err) {
-            console.error(err);
-            UI.showNotification('Erro', 'Mensagem não enviada.', 'error');
+            console.error('[T-Feed Direct Catch]', err);
+            UI.hideLoading();
+            UI.showNotification('Erro', `Não foi possível enviar: ${err.message || 'Erro no servidor'}`, 'error');
         }
+    }
+
+    async markAsRead(conversationId) {
+        try {
+            await supabase.rpc('mark_all_as_read', {
+                p_conv_id: conversationId,
+                p_user_id: this.currentUser.id
+            });
+        } catch (e) {}
+    }
+
+    // VOX LOGIC
+    startRecording() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            UI.showNotification('Erro', 'Seu navegador não suporta gravação de áudio.', 'error');
+            return;
+        }
+
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+            this._mediaRecorder = new MediaRecorder(stream);
+            this._audioChunks = [];
+            
+            this._mediaRecorder.ondataavailable = e => this._audioChunks.push(e.data);
+            this._mediaRecorder.onstop = () => this.handleAudioReady();
+            
+            this._mediaRecorder.start();
+            document.getElementById('record-audio-btn').classList.add('active');
+            console.log('Recording started...');
+        }).catch(err => {
+            UI.showNotification('Erro', 'Permissão de microfone negada.', 'error');
+        });
+    }
+
+    stopRecording() {
+        if (this._mediaRecorder && this._mediaRecorder.state !== 'inactive') {
+            this._mediaRecorder.stop();
+            document.getElementById('record-audio-btn').classList.remove('active');
+            console.log('Recording stopped.');
+        }
+    }
+
+    async handleAudioReady() {
+        const audioBlob = new Blob(this._audioChunks, { type: 'audio/webm' });
+        const convId = this.activeChat;
+        if (!convId) return;
+
+        UI.showLoading('Enviando áudio...');
+        try {
+            const fileName = `audio_${Date.now()}.webm`;
+            const { data, error } = await supabase.storage.from('dm_media').upload(`${convId}/${fileName}`, audioBlob);
+            if (error) throw error;
+
+            const { data: { publicUrl } } = supabase.storage.from('dm_media').getPublicUrl(`${convId}/${fileName}`);
+            
+            await supabase.from('messages').insert({
+                conversation_id: convId,
+                sender_id: this.currentUser.id,
+                type: 'audio',
+                media_url: publicUrl
+            });
+
+            UI.hideLoading();
+            this.loadMessages(convId);
+        } catch (err) {
+            UI.hideLoading();
+            console.error(err);
+        }
+    }
+
+    // MEDIA TRIGGERS
+    triggerMediaUpload() { document.getElementById('dm-media-input').click(); }
+    triggerFileUpload() { document.getElementById('dm-file-input').click(); }
+
+    onMediaSelected(input) {
+        const file = input.files[0];
+        if (!file) return;
+        this._pendingMediaFile = file;
+        this.showMediaPreview(file);
+    }
+
+    onFileSelected(input) {
+        const file = input.files[0];
+        if (!file) return;
+        this._pendingMediaFile = file;
+        this.showMediaPreview(file);
+    }
+
+    showMediaPreview(file) {
+        const preview = document.getElementById('chat-preview-media');
+        preview.classList.remove('hidden');
+        preview.innerHTML = `
+            <div class="flex items-center justify-between p-sm" style="background:#222; border-radius:10px">
+                <div class="flex items-center gap-sm">
+                    <i class="bi bi-file-earmark-check text-cyan" style="font-size:24px"></i>
+                    <span class="text-xs truncate" style="max-width:200px">${file.name}</span>
+                </div>
+                <i class="bi bi-x-circle text-danger" onclick="tfeed.cancelMediaPreview()"></i>
+            </div>
+        `;
+        document.getElementById('btn-send-dm').style.display = 'block';
+        document.getElementById('record-audio-btn').style.display = 'none';
+    }
+
+    cancelMediaPreview() {
+        this._pendingMediaFile = null;
+        document.getElementById('chat-preview-media').classList.add('hidden');
+        this.toggleSendBtn(document.getElementById('chat-msg-input'));
+    }
+
+    async markAsRead(conversationId) {
+        try {
+            await supabase.from('conversation_members')
+                .update({ unread_count: 0, last_read_at: new Date().toISOString() })
+                .eq('conversation_id', conversationId)
+                .eq('user_id', this.currentUser.id);
+        } catch (e) {}
     }
 
     handleNewMessage(payload) {
-        if (this.currentView === 'direct' && !this.activeChat) {
-            this.renderView('direct');
-        } else if (this.activeChat === payload.new.conversation_id) {
+        if (this.activeChat === payload.new.conversation_id) {
             this.loadMessages(this.activeChat);
+            this.markAsRead(this.activeChat);
+        } else if (this.currentView === 'direct') {
+            this.renderDirect();
+        }
+        
+        // Push notification simulation if not active
+        if (this.activeChat !== payload.new.conversation_id && payload.new.sender_id !== this.currentUser.id) {
+            // UI.showNotification('Nova Mensagem', 'Você recebeu uma mensagem no direct.', 'info');
         }
     }
+
+    playAudio(url, btn) {
+        const icon = btn.querySelector('i');
+        const audio = new Audio(url);
+        
+        if (icon.classList.contains('bi-play-fill')) {
+            audio.play();
+            icon.classList.replace('bi-play-fill', 'bi-pause-fill');
+            
+            audio.onended = () => {
+                icon.classList.replace('bi-pause-fill', 'bi-play-fill');
+            };
+        } else {
+            audio.pause();
+            icon.classList.replace('bi-pause-fill', 'bi-play-fill');
+        }
+    }
+
 
     renderViewProfile(uid) {
         this.renderView('profile', uid);
@@ -825,23 +1195,23 @@ class TFeedV2 {
 
     async awardPoints(action, amount) {
         try {
-            // T-FIT Point logic (existing function integration)
             const user = auth.getCurrentUser();
             if (!user) return;
 
-            const { data, error } = await supabase.rpc('add_tpoints', {
-                user_id_param: user.id,
-                amount_param: amount
-            });
+            // Trigger GrowthSystem if it's the right action type
+            if (typeof GrowthSystem !== 'undefined') {
+                if (action === 'Publicação criada') GrowthSystem.awardPoints(user.id, 'post_feed');
+                if (action === 'Concluir Treino') GrowthSystem.awardPoints(user.id, 'treino_concluido');
+            }
+
+            // Internal point award
+            const curr = Number(user.t_points) || 0;
+            await supabase.from('profiles').update({ t_points: curr + amount }).eq('id', user.id);
+            user.t_points = curr + amount;
 
             console.log(`[T-Points] Awarded ${amount} for: ${action}`);
         } catch (err) {
-            console.warn('[T-Points] Point award failed, falling back to profile update...');
-            // Fallback: direct update if RPC fails
-            const u = auth.getCurrentUser();
-            const curr = Number(u.t_points) || 0;
-            await supabase.from('profiles').update({ t_points: curr + amount }).eq('id', u.id);
-            u.t_points = curr + amount;
+            console.error('[T-Points] Point award failed:', err);
         }
     }
 
@@ -970,10 +1340,28 @@ class TFeedV2 {
         UI.showLoading('Publicando...');
 
         try {
-            // Conversão de base64 data URL para Blob e File
-            const res = await fetch(base64Img);
-            const blob = await res.blob();
-            const file = new File([blob], `workout_${Date.now()}.jpg`, { type: 'image/jpeg' });
+            // Conversão manual de base64 data URL para Blob e File para evitar erro do fetch() no iOS/Safari
+            const block = base64Img.split(";");
+            const contentType = block[0].split(":")[1];
+            const realData = block[1].split(",")[1];
+            
+            const b64toBlob = (b64Data, contentType='', sliceSize=512) => {
+                const byteCharacters = atob(b64Data);
+                const byteArrays = [];
+                for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+                    const slice = byteCharacters.slice(offset, offset + sliceSize);
+                    const byteNumbers = new Array(slice.length);
+                    for (let i = 0; i < slice.length; i++) {
+                        byteNumbers[i] = slice.charCodeAt(i);
+                    }
+                    const byteArray = new Uint8Array(byteNumbers);
+                    byteArrays.push(byteArray);
+                }
+                return new Blob(byteArrays, {type: contentType});
+            };
+
+            const blob = b64toBlob(realData, contentType);
+            const file = new File([blob], `workout_${Date.now()}.jpg`, { type: contentType || 'image/jpeg' });
 
             const fileName = `post_${Date.now()}.jpg`;
 
@@ -1762,6 +2150,39 @@ class TFeedV2 {
             UI.closeModal();
             UI.showNotification('Sucesso', 'Comprovante em análise!', 'success');
         } catch (e) { UI.hideLoading(); }
+    }
+
+    async startCall(type, targetId) {
+        console.log(`[T-Call] Iniciando chamada de ${type} para ${targetId}`);
+        UI.showNotification('Conectando...', `Iniciando chamada de ${type === 'video' ? 'vídeo' : 'voz'}...`, 'info');
+        
+        try {
+            // Placeholder for WebRTC Signal
+            const { data, error } = await supabase.rpc('start_call', {
+                p_caller: this.currentUser.id,
+                p_type: type
+            });
+
+            if (error) throw error;
+            
+            UI.showModal('Chamada em Andamento', `
+                <div class="text-center p-xl">
+                    <div class="tf-v2-call-avatar mb-md">
+                        <img src="./logo.png" style="width:100px; height:100px; border-radius:50%; border:3px solid var(--tf-cyan); animation: pulse 2s infinite;">
+                    </div>
+                    <h3 class="text-white mb-sm">Chamando...</h3>
+                    <p class="text-muted text-sm mb-xl">Aguardando o outro atleta atender.</p>
+                    <div class="flex justify-center gap-md">
+                        <button class="btn btn-danger btn-circle" style="width:60px; height:60px; border-radius:50%;" onclick="UI.closeModal();">
+                            <i class="bi bi-telephone-x-fill"></i>
+                        </button>
+                    </div>
+                </div>
+            `);
+        } catch (err) {
+            console.error(err);
+            UI.showNotification('T-Call Beta', 'Esta funcionalidade premium está sendo liberada gradualmente em sua região.', 'info');
+        }
     }
 
     timeAgo(dateStr) {

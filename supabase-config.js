@@ -23,6 +23,9 @@ console.log("[Supabase Config] URL:", SUPABASE_URL);
         // 2. Criar cliente
         const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+        // Guardar referência da lib original antes de sobrescrever, para criar clientes temporários depois
+        window.supabaseLib = window.supabase;
+
         // Substitui a lib global pela instância do cliente para o resto do app usar
         window.supabase = client;
 

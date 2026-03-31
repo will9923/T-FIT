@@ -59,20 +59,6 @@ router.addRoute('/payment/plans', () => {
         }
     });
 
-    // 2. Buscar Personals (apenas se for aluno)
-    let rankedPersonals = [];
-    let top5 = [];
-    if (user.role === 'student') {
-        const personals = db.getAll('profiles').filter(p => p.role === 'personal' && p.status === 'active');
-        const students = db.getAll('profiles').filter(p => p.role === 'student');
-
-        rankedPersonals = personals.map(p => {
-            const studentCount = students.filter(s => s.assigned_personal_id === p.id).length;
-            return { ...p, studentCount };
-        }).sort((a, b) => b.studentCount - a.studentCount);
-
-        top5 = rankedPersonals.slice(0, 5);
-    }
 
     const content = `
         <div class="page p-lg" style="background: var(--bg-body); min-height: 100vh;">
@@ -113,54 +99,7 @@ router.addRoute('/payment/plans', () => {
                     ${adminPlans.length === 0 ? '<p class="text-center p-xl opacity-50 col-span-2">Nenhum plano administrativo disponível.</p>' : ''}
                 </div>
                 
-                ${user.role === 'student' && filter !== 'ai' ? `
-                    <!-- Busca de Personal -->
-                    <div class="mt-2xl border-t pt-2xl" style="border-color: rgba(255,255,255,0.1);">
-                        <h2 class="section-title text-center mb-lg">Contrate um Personal Trainer</h2>
-                        
-                        <div class="mb-xl">
-                            <div class="form-group max-w-md mx-auto relative">
-                                <input type="text" class="form-input" id="search-personal-plans" placeholder="🔍 Pesquisar personal por nome..." 
-                                       oninput="window.filterPersonalsInPlans(this.value)" style="padding-left: 3rem; background: rgba(255,255,255,0.05); border-radius: 12px; height: 50px;">
-                                <span style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); font-size: 1.2rem;">🔍</span>
-                            </div>
-                        </div>
 
-                        <!-- Top 5 Personals -->
-                        <h3 class="text-md font-bold mb-md">🔥 TOP 5 Profissionais</h3>
-                        <div class="grid grid-5 gap-md mb-2xl" id="top5-personals-plans">
-                            ${top5.map((p, idx) => `
-                                <div class="card p-md text-center hover:shadow-lg transition-all" style="border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.01); position: relative;">
-                                    <div style="position: absolute; top: 0; left: 0; background: var(--primary); color: white; font-size: 10px; padding: 2px 8px; border-bottom-right-radius: 8px; font-weight: bold;">#${idx + 1}</div>
-                                    <div class="sidebar-avatar mx-auto mb-md" style="width: 50px; height: 50px; font-size: 1rem; background: var(--bg-hover); overflow: hidden; border: 2px solid rgba(255,255,255,0.1);">
-                                        ${p.photo_url ? `<img src="${p.photo_url}" style="width: 100%; height: 100%; object-fit: cover;">` : p.name.charAt(0)}
-                                    </div>
-                                    <h4 class="mb-xs text-xs" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.name}</h4>
-                                    <button class="btn btn-outline btn-block btn-xs mt-sm" onclick="window.viewPersonalPlansFromPlans('${p.id}')" style="font-size: 10px;">
-                                        Ver Planos
-                                    </button>
-                                </div>
-                            `).join('')}
-                        </div>
-
-                        <!-- Lista de Todos/Filtrados -->
-                        <h3 class="text-md font-bold mb-md" id="all-personals-title">Todos os Profissionais</h3>
-                        <div class="grid grid-4 gap-md" id="personals-grid-plans">
-                            ${rankedPersonals.map(p => `
-                                <div class="card p-lg text-center hover:shadow-lg transition-all" style="border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.01);">
-                                    <div class="sidebar-avatar mx-auto mb-md" style="width: 65px; height: 65px; font-size: 1.5rem; background: var(--bg-hover); overflow: hidden; border: 2px solid rgba(255,255,255,0.1);">
-                                        ${p.photo_url ? `<img src="${p.photo_url}" style="width: 100%; height: 100%; object-fit: cover;">` : p.name.charAt(0)}
-                                    </div>
-                                    <h4 class="mb-xs text-sm">${p.name}</h4>
-                                    <div class="text-muted text-xs mb-md">⭐ 5.0 • ${p.studentCount} alunos</div>
-                                    <button class="btn btn-outline btn-block btn-xs" onclick="window.viewPersonalPlansFromPlans('${p.id}')">
-                                        Ver Planos
-                                    </button>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                ` : ''}
 
                 <div class="text-center mt-2xl">
                     <p class="text-muted text-xs">Precisa de ajuda com sua assinatura? <a href="#" onclick="window.WhatsApp.sendMessage('5511911917087', 'Preciso de ajuda com desbloqueio')">Fale com o Suporte</a></p>
@@ -171,95 +110,7 @@ router.addRoute('/payment/plans', () => {
 
     document.getElementById('app').innerHTML = content;
 
-    // Helper Functions for this page
-    window.filterPersonalsInPlans = (query) => {
-        const container = document.getElementById('personals-grid-plans');
-        const title = document.getElementById('all-personals-title');
-        const top5 = document.getElementById('top5-personals-plans');
 
-        if (!query) {
-            title.innerText = "Todos os Profissionais";
-            if (top5) top5.parentElement.style.display = 'block';
-            container.innerHTML = rankedPersonals.map(p => `
-                <div class="card p-lg text-center hover:shadow-lg transition-all" style="border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.01);">
-                    <div class="sidebar-avatar mx-auto mb-md" style="width: 65px; height: 65px; font-size: 1.5rem; background: var(--bg-hover); overflow: hidden; border: 2px solid rgba(255,255,255,0.1);">
-                        ${p.photo_url ? `<img src="${p.photo_url}" style="width: 100%; height: 100%; object-fit: cover;">` : p.name.charAt(0)}
-                    </div>
-                    <h4 class="mb-xs text-sm">${p.name}</h4>
-                    <div class="text-muted text-xs mb-md">⭐ 5.0 • ${p.studentCount} alunos</div>
-                    <button class="btn btn-outline btn-block btn-xs" onclick="window.viewPersonalPlansFromPlans('${p.id}')">
-                        Ver Planos
-                    </button>
-                </div>
-            `).join('');
-            return;
-        }
-
-        title.innerText = "Resultados da Busca";
-        if (top5) top5.parentElement.style.display = 'none';
-
-        const filtered = rankedPersonals.filter(p => p.name.toLowerCase().includes(query.toLowerCase()));
-
-        container.innerHTML = filtered.map(p => `
-            <div class="card p-lg text-center hover:shadow-lg transition-all" style="border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.01);">
-                <div class="sidebar-avatar mx-auto mb-md" style="width: 65px; height: 65px; font-size: 1.5rem; background: var(--bg-hover); overflow: hidden; border: 2px solid rgba(255,255,255,0.1);">
-                    ${p.photo_url ? `<img src="${p.photo_url}" style="width: 100%; height: 100%; object-fit: cover;">` : p.name.charAt(0)}
-                </div>
-                <h4 class="mb-xs text-sm">${p.name}</h4>
-                <div class="text-muted text-xs mb-md">⭐ 5.0 • ${p.studentCount} alunos</div>
-                <button class="btn btn-outline btn-block btn-xs" onclick="window.viewPersonalPlansFromPlans('${p.id}')">
-                    Ver Planos
-                </button>
-            </div>
-        `).join('');
-
-        if (filtered.length === 0) {
-            container.innerHTML = '<p class="col-span-4 text-center py-xl opacity-50">Nenhum profissional encontrado.</p>';
-        }
-    };
-
-    window.viewPersonalPlansFromPlans = (id) => {
-        const personal = db.getById('profiles', id);
-        if (!personal) return;
-        const pPlans = db.query('plans', p => p.created_by === id && p.target_audience === 'student' && p.active !== false);
-
-        const modalContent = `
-            <div class="p-md">
-                <div class="flex items-center gap-md mb-lg">
-                    <div class="sidebar-avatar" style="width: 50px; height: 50px; font-size: 1.2rem;">
-                         ${personal.photo_url ? `<img src="${personal.photo_url}" style="width: 100%; height: 100%; object-fit: cover;">` : personal.name.charAt(0)}
-                    </div>
-                    <div>
-                        <h3 class="mb-0">Planos de ${personal.name}</h3>
-                        <p class="text-xs text-muted mb-0">Escolha o plano ideal para seu objetivo</p>
-                    </div>
-                </div>
-                <div class="flex flex-col gap-md">
-                    ${pPlans.map(p => `
-                        <div class="card p-md border-light hover:border-primary transition-all" style="border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.02);">
-                            <div class="flex justify-between items-center mb-sm">
-                                <div>
-                                    <h4 class="font-bold">${p.name}</h4>
-                                    <span class="text-xs text-muted">${p.billing_cycle || 'Mensal'}</span>
-                                </div>
-                                <div class="text-lg font-bold text-primary">R$ ${parseFloat(p.price).toFixed(2).replace('.', ',')}</div>
-                            </div>
-                            <button class="btn btn-primary btn-block btn-sm mt-md" onclick="window.hirePersonalFromPlans('${personal.id}', '${p.id}', '${p.name}', ${p.price})">
-                                Contratar Este Plano
-                            </button>
-                        </div>
-                    `).join('')}
-                    ${pPlans.length === 0 ? '<p class="text-center text-muted p-lg">Este personal não possui planos ativos no momento.</p>' : ''}
-                </div>
-            </div>
-        `;
-        UI.showModal('Planos do Personal', modalContent);
-    };
-
-    window.hirePersonalFromPlans = (personalId, planId, plan_name, price) => {
-        UI.closeModal();
-        window.startCheckout(price, `Contratação Personal - ${plan_name}`, planId, personalId);
-    };
 
     window.selectPaymentPlan = (planId) => {
         const plan = db.getById('plans', planId);

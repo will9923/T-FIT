@@ -22,6 +22,23 @@
     padding-bottom: 75px;
 }
 
+/* SKELETON LOADING */
+.tf-v2-skeleton {
+    background: linear-gradient(90deg, #121212 25%, #1a1a1a 50%, #121212 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite linear;
+    border-radius: 8px;
+}
+
+@keyframes skeleton-loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.skeleton-circle { border-radius: 50%; }
+.skeleton-title { height: 16px; width: 60%; margin: 10px 0; }
+.skeleton-media { aspect-ratio: 4/5; border-radius: 20px; width: 100%; }
+
 /* Header V2 - Exact Image Match */
 .tf-v2-header {
     display: flex;
@@ -103,26 +120,32 @@
     box-shadow: 0 0 15px rgba(0, 242, 255, 0.2);
 }
 
-.tf-v2-story-ring.watched {
-    background: #333;
+.tf-v2-story-ring.has-stories {
+    background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888) !important;
 }
 
-.tf-v2-story-ring.plus::after {
-    content: '+';
+.tf-v2-story-plus-badge {
     position: absolute;
-    bottom: 0;
-    right: 0;
-    background: var(--tf-accent);
-    width: 20px;
-    height: 20px;
+    bottom: 2px;
+    right: 2px;
+    background: #008dd2; /* Cor mais sólida e contrastante */
+    color: white;
+    width: 24px;
+    height: 24px;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: bold;
-    font-size: 16px;
-    border: 2px solid #000;
-    box-shadow: 0 0 10px var(--tf-accent-glow);
+    font-weight: 800;
+    font-size: 18px;
+    border: 3px solid #000;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+    z-index: 10;
+    line-height: 1;
+}
+
+.tf-v2-story-ring.watched {
+    background: #333 !important;
 }
 
 .tf-v2-story-avatar {
@@ -610,136 +633,295 @@ body:has(#tfeed-v2-wrapper) .tf-bottom-nav {
     display: none !important;
 }
 
-/* Direct / Chat Styles */
+/* Direct / Chat Styles - Instagram Premium Neon */
 .tf-v2-chat-container {
-    height: calc(100vh - 155px);
+    position: fixed;
+    inset: 0;
+    background: #000;
+    z-index: 10000;
     display: flex;
     flex-direction: column;
-    background: var(--tf-bg);
+    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .tf-v2-chat-header {
-    padding: 15px 20px;
+    height: 70px;
+    padding: 0 15px;
     display: flex;
     align-items: center;
-    gap: 15px;
+    gap: 12px;
+    background: rgba(10, 10, 10, 0.95);
+    backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--tf-border);
-    backdrop-filter: blur(10px);
+    z-index: 10;
+}
+
+.tf-v2-chat-back {
+    font-size: 24px;
+    padding: 8px;
+    cursor: pointer;
+    color: var(--tf-cyan);
+}
+
+.tf-v2-chat-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 2px solid var(--tf-border);
+    object-fit: cover;
 }
 
 .tf-v2-chat-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 20px;
+    padding: 20px 15px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 15px;
+    background: radial-gradient(circle at top, #0a0a0a 0%, #000 100%);
 }
 
+.tf-v2-chat-messages::-webkit-scrollbar {
+    width: 4px;
+}
+
+.tf-v2-chat-messages::-webkit-scrollbar-thumb {
+    background: var(--tf-border);
+    border-radius: 10px;
+}
+
+/* Message Bubbles - Exact IG Style */
+.msg-wrapper {
+    display: flex;
+    flex-direction: column;
+    max-width: 78%;
+}
+
+.msg-wrapper.sent { align-self: flex-end; }
+.msg-wrapper.received { align-self: flex-start; }
+
 .tf-v2-message {
-    max-width: 75%;
-    padding: 10px 16px;
-    border-radius: 20px;
+    padding: 12px 16px;
+    border-radius: 22px;
     font-size: 14px;
     line-height: 1.4;
     position: relative;
-}
-
-.tf-v2-message.received {
-    align-self: flex-start;
-    background: #262626;
-    color: #fff;
-    border-bottom-left-radius: 4px;
+    word-break: break-word;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
 }
 
 .tf-v2-message.sent {
-    align-self: flex-end;
-    background: linear-gradient(45deg, #008dd2, #00f2ff);
+    background: linear-gradient(135deg, #008dd2 0%, #00f2ff 100%);
     color: #000;
-    font-weight: 500;
     border-bottom-right-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 242, 255, 0.2);
+    font-weight: 500;
 }
 
-.tf-v2-chat-input-area {
-    padding: 15px;
-    border-top: 1px solid var(--tf-border);
-    display: flex;
-    gap: 12px;
-    align-items: center;
-}
-
-.tf-v2-chat-input-wrapper {
-    flex: 1;
+.tf-v2-message.received {
     background: #1a1a1a;
-    border-radius: 25px;
-    padding: 8px 16px;
-    display: flex;
-    align-items: center;
+    color: #fff;
+    border-bottom-left-radius: 4px;
     border: 1px solid var(--tf-border);
 }
+
+/* Media Content in Chat */
+.msg-media-container {
+    width: 240px;
+    border-radius: 18px;
+    overflow: hidden;
+    background: #111;
+    border: 1px solid var(--tf-border);
+}
+
+.msg-media-container img, .msg-media-container video {
+    width: 100%;
+    display: block;
+    object-fit: cover;
+    max-height: 320px;
+}
+
+/* Audio Player Bubble */
+.audio-msg {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 180px;
+}
+
+.audio-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.audio-progress {
+    flex: 1;
+    height: 3px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    position: relative;
+}
+
+.audio-progress-fill {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    background: var(--tf-cyan);
+    border-radius: 2px;
+    width: 0%;
+}
+
+/* Chat Input Area - Precise IG Match */
+.tf-v2-chat-input-area {
+    background: #000;
+    padding: 10px 15px 35px; /* Bottom padding for safe area */
+    border-top: 1px solid var(--tf-border);
+}
+
+.tf-v2-input-main-wrap {
+    background: #1a1a1a;
+    border-radius: 28px;
+    display: flex;
+    align-items: center;
+    padding: 5px 8px;
+    border: 1px solid var(--tf-border);
+    gap: 8px;
+}
+
+.tf-v2-input-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 20px;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.tf-v2-input-btn:active { transform: scale(0.9); }
+.tf-v2-input-btn.active { color: #fe2c55; }
 
 .tf-v2-chat-input {
     flex: 1;
     background: none;
     border: none;
     color: #fff;
+    font-size: 15px;
+    padding: 10px 5px;
     outline: none;
-    font-size: 14px;
+    max-height: 120px;
+    overflow-y: auto;
 }
 
-/* Conversation List */
+.tf-v2-send-btn {
+    color: var(--tf-cyan);
+    font-weight: 800;
+    font-size: 14px;
+    padding: 0 12px;
+    cursor: pointer;
+    display: none; /* Only show when text exists */
+}
+
+/* Conversation List / Inbox */
+.tf-v2-inbox {
+    animation: fadeIn 0.3s ease;
+}
+
 .tf-v2-conv-item {
     display: flex;
     align-items: center;
     gap: 15px;
-    padding: 15px 20px;
+    padding: 12px 20px;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: 0.2s;
 }
 
-.tf-v2-conv-item:hover {
-    background: rgba(255, 255, 255, 0.05);
+.tf-v2-conv-item:active { background: rgba(255,255,255,0.05); }
+
+.tf-v2-avatar-wrap {
+    position: relative;
+    width: 60px;
+    height: 60px;
 }
 
 .tf-v2-conv-avatar {
-    width: 56px;
-    height: 56px;
+    width: 100%;
+    height: 100%;
     border-radius: 50%;
     object-fit: cover;
+    border: 2px solid var(--tf-border);
+}
+
+.tf-v2-online-badge {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    width: 16px;
+    height: 16px;
+    background: #22c55e;
+    border-radius: 50%;
+    border: 3px solid #000;
 }
 
 .tf-v2-conv-info {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
     overflow: hidden;
 }
 
 .tf-v2-conv-name {
-    font-weight: 600;
+    font-weight: 700;
     font-size: 15px;
+    color: #fff;
     margin-bottom: 2px;
 }
 
-.tf-v2-conv-last {
+.tf-v2-conv-meta {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
     font-size: 13px;
     color: var(--tf-text-muted);
+}
+
+.tf-v2-last-msg {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+.tf-v2-unread-tag {
+    width: 10px;
+    height: 10px;
+    background: var(--tf-cyan);
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 8px var(--tf-accent-glow);
 }
 
 .tf-v2-direct-title {
     padding: 20px;
-    font-size: 20px;
-    font-weight: 800;
+    font-size: 22px;
+    font-weight: 900;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    color: #fff;
 }
 
-.tf-v2-chat-back {
-    font-size: 24px;
-    cursor: pointer;
+@keyframes slideUp {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
 }
 
 /* T-Store & Checkout Styles */

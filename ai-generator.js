@@ -123,39 +123,43 @@ const AIHelper = {
         // PROVIDER ROUTER
         let provider = window.AI_CONFIG?.provider || 'gemini';
 
-        // DeepSeek fallback/routing: If provider is deepseek but visual analysis is strictly required and Gemini is available,
-        // we could force it, but the user requested to use the same IA as workouts (DeepSeek).
-        // So we only force Gemini if the user explicitly chooses it or if the prompt is VISUAL ONLY.
-
         console.log(`T-FIT AI: Iniciando chamada (Provider: ${provider})...`);
 
         try {
+            let result;
             if (provider === 'deepseek') {
-                return await AIHelper.callDeepSeek(prompt, config);
-            }
-
-            // Default to Gemini (via Backend or Direct fallback)
-            if (window.firebaseFunctions) {
+                result = await AIHelper.callDeepSeek(prompt, config);
+            } else if (window.firebaseFunctions) {
                 const generateContent = window.firebaseFunctions.httpsCallable('generateAIContent');
-                const result = await generateContent({ prompt, config, images });
-                if (result.data && result.data.success) {
-                    return AIHelper._parseJSON(result.data.text);
+                const callResult = await generateContent({ prompt, config, images });
+                if (callResult.data && callResult.data.success) {
+                    result = AIHelper._parseJSON(callResult.data.text);
                 } else {
-                    throw new Error(result.data?.error || "Erro no Backend Gemini.");
+                    throw new Error(callResult.data?.error || "Erro no Backend Gemini.");
                 }
             } else {
                 console.warn("T-FIT AI: Firebase Functions não disponível. Usando Gemini Direto...");
-                return await AIHelper.callGeminiDirect(prompt, config, images);
+                result = await AIHelper.callGeminiDirect(prompt, config, images);
             }
+            return result;
         } catch (error) {
             console.error(`T-FIT AI: Erro no provider ${provider}:`, error);
-
-            // Auto-fallback chain
-            if (provider === 'gemini') {
-                // If firebase failed, try direct
-                return await AIHelper.callGeminiDirect(prompt, config, images);
+            
+            // Automatic logging of AI failures
+            if (typeof ErrorMonitor !== 'undefined') {
+                ErrorMonitor.logAutomatic('AI_GENERATION_FAILED', {
+                    message: error.message,
+                    provider: provider,
+                    prompt_preview: prompt.substring(0, 100)
+                }, 'AIHelper.callGemini');
             }
 
+            // Auto-fallback chain
+            if (provider === 'gemini' && !window.firebaseFunctions) {
+                // If direct failed and we don't have firebase, nothing left
+                throw error;
+            }
+            
             throw error;
         }
     },

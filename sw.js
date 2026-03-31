@@ -1,17 +1,17 @@
-const CACHE_NAME = 'tfit-v14.16';
+const CACHE_NAME = 'tfit-v14.17';
 const ASSETS = [
     './',
     './index.html',
-    './style.css?v=14.16',
-    './app.js?v=14.16',
-    './workout-db.js?v=14.16',
-    './nutrition-db.js?v=14.16',
-    './media-manager.js?v=14.16',
-    './auth-manager.js?v=14.16',
-    './student-pages.js?v=14.16',
-    './admin-pages.js?v=14.16',
-    './personal-features.js?v=14.16',
-    './t-feed.js?v=14.16',
+    './style.css?v=14.17',
+    './app.js?v=14.17',
+    './workout-db.js?v=14.17',
+    './nutrition-db.js?v=14.17',
+    './media-manager.js?v=14.17',
+    './auth-manager.js?v=14.17',
+    './student-pages.js?v=14.17',
+    './admin-pages.js?v=14.17',
+    './personal-features.js?v=14.17',
+    './t-feed.js?v=14.17',
     './logo.png'
 ];
 

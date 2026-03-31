@@ -1,0 +1,20 @@
+window.saveGlobalPricing = async () => {
+    const admPrice = parseFloat(document.getElementById('adm-price-input').value);
+    const personalPrice = parseFloat(document.getElementById('personal-price-input').value);
+
+    if (isNaN(admPrice) || isNaN(personalPrice)) return UI.showNotification('Erro', 'Preencha os valores válidos e numéricos.', 'error');
+
+    UI.showLoading('Salvando configurações globais...');
+
+    // Atualiza ou Insere plano_adm
+    let { data: currAdm } = await window.supabase.from('plans').select('id').eq('id', 'plano_adm').maybeSingle();
+    if (currAdm) {
+        await window.supabase.from('plans').update({ price: admPrice }).eq('id', 'plano_adm');
+    } else {
+        await window.supabase.from(" plans\).insert({ id: \plano_adm\, name: \Cobran�a Mensal - Plataforma\, price: admPrice, billing_cycle: \Mensal\, active: true, target_audience: \admin\, duration_days: 30, created_by: null });
+    }
+    if (db.fetchCollection) await db.fetchCollection(" plans\);
+    UI.hideLoading();
+    UI.showNotification(" Sucesso\, \Valores atualizados.\, \success\);
+};
+window.runSystemDiagnostic = async () => { alert(" Motor restaurado.\); };

@@ -160,6 +160,34 @@
                 .btn-save-gym { width: 100%; padding: 16px; margin-top: 20px; }
                 .btn-gps-action { background: #1e293b; border: 2px dashed #3b82f6; width: 100%; padding: 30px; border-radius: 16px; color: #3b82f6; font-weight: 700; display: flex; flex-direction: column; align-items: center; gap: 10px; cursor: pointer; }
                 .btn-gps-action:hover { background: rgba(59, 130, 246, 0.1); }
+
+                /* Occupancy Report Card */
+                .occupancy-report-card { padding: 10px; text-align: center; }
+                .occupancy-options { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 20px; }
+                .occ-option { 
+                    padding: 20px 10px; border-radius: 16px; border: 2px solid transparent; 
+                    cursor: pointer; transition: all 0.2s; display: flex; 
+                    flex-direction: column; align-items: center; gap: 8px; 
+                    background: rgba(255,255,255,0.03); 
+                }
+                .occ-option.selected {
+                    border-color: var(--primary);
+                    background: rgba(99, 102, 241, 0.1);
+                    transform: scale(1.05);
+                }
+                .occ-option i { font-size: 24px; }
+                .occ-option span { font-size: 12px; font-weight: 700; }
+                
+                .occ-option.vazia { color: #10b981; }
+                .occ-option.vazia:hover { background: rgba(16, 185, 129, 0.1); border-color: #10b981; }
+                
+                .occ-option.moderada { color: #f59e0b; }
+                .occ-option.moderada:hover { background: rgba(245, 158, 11, 0.1); border-color: #f59e0b; }
+                
+                .occ-option.lotada { color: #ef4444; }
+                .occ-option.lotada:hover { background: rgba(239, 68, 68, 0.1); border-color: #ef4444; }
+                
+                .occ-skip-btn { margin-top: 25px; color: #94a3b8; font-size: 13px; text-decoration: underline; background: none; border: none; cursor: pointer; }
             </style>
         `;
 
@@ -241,7 +269,7 @@
             const el = document.createElement('div');
             el.className = 'gym-marker';
 
-            const color = gym.status_lotacao === 'VAZIA' ? '#10b981' : (gym.status_lotacao === 'NORMAL' ? '#f59e0b' : '#ef4444');
+            const color = getLotacaoColor(gym.status_lotacao);
             el.innerHTML = `
                 <svg class="marker-svg" viewBox="0 0 40 50">
                     <path d="M20 0C8.95 0 0 8.95 0 20C0 35 20 50 20 50C20 50 40 35 40 20C40 8.95 31.05 0 20 0Z" fill="${color}" />
@@ -299,8 +327,8 @@
         const listSec = document.getElementById('nearby-list-container');
         const detailSec = document.getElementById('gym-detail-card');
 
-        listSec.classList.add('hidden');
-        detailSec.classList.remove('hidden');
+        if (listSec) listSec.classList.add('hidden');
+        if (detailSec) detailSec.classList.remove('hidden');
 
         const dist = userLocation ? getDistance(userLocation.lat, userLocation.lng, gym.latitude, gym.longitude) : 0;
         const color = getLotacaoColor(gym.status_lotacao);
@@ -318,11 +346,11 @@
             <div class="gym-status-row">
                 <div class="occupancy-info" style="color: ${color}">
                     <span style="font-size: 16px;">●</span>
-                    <span>${gym.status_lotacao} • Normal</span>
+                    <span>${gym.status_lotacao}</span>
                 </div>
                 <div class="occupancy-info">
-                    <i class="fas fa-clock"></i>
-                    <span>${gym.pessoas_treinando} pessoas treinando agora</span>
+                    <i class="fas fa-users"></i>
+                    <span>${gym.pessoas_treinando || 0} alunos agora</span>
                 </div>
             </div>
 
@@ -345,9 +373,16 @@
     function showPanel(type) {
         const listSec = document.getElementById('nearby-list-container');
         const detailSec = document.getElementById('gym-detail-card');
+        const btnBack = document.getElementById('btn-back-waze');
+        if (btnBack) {
+            btnBack.onclick = () => {
+                if (listSec) listSec.classList.remove('hidden');
+                if (detailSec) detailSec.classList.add('hidden');
+            };
+        }
         if (type === 'list') {
-            listSec.classList.remove('hidden');
-            detailSec.classList.add('hidden');
+            if (listSec) listSec.classList.remove('hidden');
+            if (detailSec) detailSec.classList.add('hidden');
         }
     }
 
@@ -391,13 +426,12 @@
             localStorage.setItem('active_checkin', JSON.stringify(data));
             UI.showNotification('Sucesso', 'Check-in realizado! Bom treino! 💪', 'success');
 
-            // Refresh counts and UI
-            const gyms = await loadNearbyAcademias();
-            const updatedGym = gyms.find(g => g.id === gymId);
-            if (updatedGym) showGymDetail(updatedGym);
-            else showGymDetail(activeSelectedGym);
-
             // Auto-checkout handled by SQL but we can set a local timer too
+
+            // Show optional Crowding Report Card
+            setTimeout(() => {
+                showOccupancyReportCard(data.id);
+            }, 800);
         } catch (e) {
             console.error(e);
             UI.showNotification('Erro', 'Falha ao realizar check-in.', 'error');
@@ -428,6 +462,73 @@
             else showGymDetail(activeSelectedGym);
         } catch (e) {
             console.error(e);
+        } finally {
+            UI.hideLoading();
+        }
+    }
+
+    function showOccupancyReportCard(checkinId) {
+        const content = `
+            <div class="occupancy-report-card">
+                <p class="mb-md">Como está o movimento na academia agora?</p>
+                
+                <div class="occupancy-options mb-md">
+                    <div class="occ-option vazia" onclick="this.parentElement.querySelectorAll('.occ-option').forEach(el=>el.classList.remove('selected')); this.classList.add('selected'); window._selectedOcc = 'VAZIA'">
+                        <i class="fas fa-smile"></i>
+                        <span>Vazia</span>
+                    </div>
+                    <div class="occ-option moderada" onclick="this.parentElement.querySelectorAll('.occ-option').forEach(el=>el.classList.remove('selected')); this.classList.add('selected'); window._selectedOcc = 'MODERADA'">
+                        <i class="fas fa-meh"></i>
+                        <span>Moderada</span>
+                    </div>
+                    <div class="occ-option lotada" onclick="this.parentElement.querySelectorAll('.occ-option').forEach(el=>el.classList.remove('selected')); this.classList.add('selected'); window._selectedOcc = 'LOTADA'">
+                        <i class="fas fa-frown"></i>
+                        <span>Lotada</span>
+                    </div>
+                </div>
+
+                <div class="form-group mb-md">
+                    <label class="form-label text-sm">Quantos alunos treinando aprox.?</label>
+                    <input type="number" id="qtd-pessoas-report" class="form-input" placeholder="Ex: 12" min="0">
+                </div>
+                
+                <button class="btn btn-primary btn-block" onclick="WazeFitness.saveOccupancyReport('${checkinId}', window._selectedOcc, document.getElementById('qtd-pessoas-report').value)">
+                    Enviar Reporte
+                </button>
+                <button class="occ-skip-btn" onclick="UI.closeModal()">Pular</button>
+            </div>
+        `;
+
+        UI.showModal('🏠 Movimento Atual', content);
+    }
+
+    async function saveOccupancyReport(checkinId, status, qtd) {
+        if (!status && !qtd) {
+            UI.showNotification('Atenção', 'Selecione uma opção ou informe a quantidade.', 'warning');
+            return;
+        }
+
+        UI.showLoading('Salvando reporte...');
+        try {
+            const dataToUpdate = {};
+            if (status) dataToUpdate.lotacao_reportada = status;
+            if (qtd) dataToUpdate.qtd_pessoas = parseInt(qtd);
+
+            const { error } = await window.supabase
+                .from('checkins')
+                .update(dataToUpdate)
+                .eq('id', checkinId);
+
+            if (error) throw error;
+
+            UI.showNotification('Obrigado!', 'Seu reporte ajuda outros usuários. 💪', 'success');
+            UI.closeModal();
+
+            // Refresh to show updated (maybe) status
+            loadNearbyAcademias();
+        } catch (e) {
+            console.error(e);
+            UI.showNotification('Erro', 'Não foi possível salvar seu reporte.', 'error');
         } finally {
             UI.hideLoading();
         }
@@ -595,9 +696,9 @@
     }
 
     function getLotacaoColor(status) {
-        if (status === 'VAZIA') return '#10b981';
-        if (status === 'NORMAL') return '#f59e0b';
-        return '#ef4444';
+        if (status === 'VAZIA') return '#10b981'; // Verde
+        if (status === 'NORMAL' || status === 'MODERADA') return '#f59e0b'; // Amarelo
+        return '#ef4444'; // Vermelho
     }
 
     // 10. ADVANCED FEATURES
@@ -658,6 +759,7 @@
             fetchGymById(id);
         },
         toggleCheckin,
+        saveOccupancyReport,
         openWaze(lat, lng) {
             window.open(`https://waze.com/ul?ll=${lat},${lng}&navigate=yes`, '_blank');
         },

@@ -654,28 +654,84 @@ video {
 }
 
 
+/* ============================================
+   CONSOLIDATED BOTTOM NAVIGATION BAR
+   ============================================ */
+
 .bottom-nav {
-    position: fixed;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 50% !important;
+    transform: translateX(-50%) !important;
     width: 100%;
-    height: 70px;
+    max-width: 480px;
+    height: calc(75px + env(safe-area-inset-bottom));
     background: rgba(15, 23, 42, 0.95);
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
-    display: flex;
+    -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
+    display: none; /* Hidden on desktop by default in style.css, shown in responsive-fix.css */
     justify-content: space-around;
-    align-items: center;
+    align-items: center; /* Changed from flex-start to center to fix cutting */
     border-top: 1px solid var(--border);
-    z-index: 1000;
+    z-index: 5000;
+    padding-top: 0; /* Removed fixed padding-top */
     padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.4);
+    box-sizing: border-box; /* Better sizing control */
 }
 
-@media screen and (min-width: 1025px) {
+@media (max-width: 768px) {
     .bottom-nav {
-        max-width: 480px;
+        display: flex !important;
     }
+}
+
+.bottom-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    gap: 4px;
+    flex: 1;
+    height: 75px; /* Fixed height for consistency inside the container */
+    position: relative;
+    padding-top: 10px;
+}
+
+.bottom-nav-item span:first-child {
+    font-size: 1.5rem;
+    line-height: 1;
+    transition: all 0.3s ease;
+}
+
+.bottom-nav-item span:last-child {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.bottom-nav-item:hover {
+    color: var(--primary-light);
+    opacity: 1;
+}
+
+.bottom-nav-item.active {
+    color: var(--primary);
+    opacity: 1;
+}
+
+.bottom-nav-item.active span:first-child {
+    transform: translateY(-4px);
+    filter: drop-shadow(0 0 8px rgba(220, 38, 38, 0.4));
+}
+
+.bottom-nav-item.active span:last-child {
+    font-weight: 800;
 }
 
 /* Real-time Counter */
@@ -3600,80 +3656,6 @@ h3 {
     transform: translateY(-2px);
 }
 
-/* ============================================
-   BOTTOM NAVIGATION BAR
-   ============================================ */
-
-.bottom-nav {
-    position: fixed;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 100%;
-    max-width: 480px;
-    height: 75px;
-    background: rgba(15, 23, 42, 0.85);
-    /* Slightly more opaque for better legibility */
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    display: none;
-    /* Hidden on desktop */
-    justify-content: space-around;
-    align-items: center;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-    z-index: 1000;
-    padding-bottom: env(safe-area-inset-bottom);
-    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.4);
-}
-
-.bottom-nav-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-decoration: none;
-    color: var(--text-muted);
-    font-size: 0.7rem;
-    font-weight: 600;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    gap: 4px;
-    flex: 1;
-    height: 100%;
-    padding-top: 8px;
-    opacity: 0.7;
-}
-
-.bottom-nav-item span:first-child {
-    font-size: 1.5rem;
-    line-height: 1;
-    transition: all 0.3s ease;
-}
-
-.bottom-nav-item span:last-child {
-    font-size: 0.65rem;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
-
-.bottom-nav-item:hover {
-    color: var(--primary-light);
-    opacity: 1;
-}
-
-.bottom-nav-item.active {
-    color: var(--primary);
-    opacity: 1;
-    background: radial-gradient(circle at center, rgba(220, 38, 38, 0.08) 0%, transparent 70%);
-}
-
-.bottom-nav-item.active span:first-child {
-    transform: translateY(-4px);
-    filter: drop-shadow(0 0 8px rgba(220, 38, 38, 0.4));
-}
-
-.bottom-nav-item.active span:last-child {
-    font-weight: 800;
-}
 
 /* Stat Glass for Plan Selection */
 .stat-glass {
@@ -6440,60 +6422,6 @@ body:has(.t-feed-wrapper) .sidebar {
     color: #3b82f6;
 }
 
-/* ============================================
-   BOTTOM NAVIGATION BAR
-   ============================================ */
-
-.bottom-nav {
-    position: fixed;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 100%;
-    max-width: 480px;
-    height: 70px;
-    background: var(--bg-secondary);
-    border-top: 1px solid var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: space-around;
-    z-index: 1000;
-    padding: 0 4px;
-    padding-bottom: calc(env(safe-area-inset-bottom) + 5px);
-    gap: 0;
-}
-
-.bottom-nav-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-decoration: none;
-    color: var(--text-muted);
-    font-size: 0.65rem;
-    font-weight: 600;
-    gap: 2px;
-    flex: 1;
-    padding: 6px 0;
-    transition: color 0.2s ease;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.bottom-nav-item span:first-child {
-    font-size: 1.4rem;
-    line-height: 1;
-}
-
-.bottom-nav-item.active {
-    color: var(--primary);
-}
-
-.bottom-nav-item:hover {
-    color: var(--primary-light);
-}
 
 /* Nav DM Badge */
 .nav-dm-badge {

@@ -6,7 +6,7 @@ class AuthManager {
         this.db = db;
         this.currentUser = null;
         this._listenerInitialized = false;
-        this.initAuthListener();
+        // initAuthListener will be called by app.js during boot to ensure all modules are ready
     }
 
     async initAuthListener() {
@@ -77,6 +77,12 @@ class AuthManager {
 
                 this.saveSession(this.currentUser);
                 console.log(`[Auth] Usuário logado: ${this.currentUser.name || 'Sem Nome'} | Role: ${finalRole}`);
+                
+                // Award T-Points for Login (Growth System)
+                if (finalRole === 'student' && typeof GrowthSystem !== 'undefined') {
+                    GrowthSystem.awardPoints(this.currentUser.id, 'login');
+                }
+
                 this.redirectAfterLogin(finalRole);
                 return;
             } else {
@@ -86,12 +92,17 @@ class AuthManager {
                 const role = session.user.user_metadata?.role || localStorage.getItem('tfit_pending_role') || 'student';
                 const name = session.user.user_metadata?.full_name || session.user.user_metadata?.name || 'Usuário';
 
+                // Check for referral code in URL or LocalStorage
+                const urlParams = new URLSearchParams(window.location.search);
+                const referrerId = urlParams.get('ref') || localStorage.getItem('tfit_referrer_id');
+
                 const newProfile = {
                     id: session.user.id,
                     email: session.user.email,
                     name: name,
                     role: role,
                     status: 'active',
+                    referrer_id: (role === 'student' && referrerId) ? referrerId : null,
                     created_at: new Date().toISOString()
                 };
 
@@ -105,6 +116,12 @@ class AuthManager {
                     console.log('[Auth] Perfil recuperado com sucesso via auto-correção.');
                     this.currentUser = { ...created, role: created.role, type: created.role };
                     this.saveSession(this.currentUser);
+
+                    // Handle Referral Logic (Growth System)
+                    if (created.role === 'student' && created.referrer_id && typeof GrowthSystem !== 'undefined') {
+                        GrowthSystem.handleReferralSignup(created.id, created.referrer_id);
+                    }
+
                     this.redirectAfterLogin(this.currentUser.role);
                     return;
                 } else {
@@ -263,9 +280,6 @@ class AuthManager {
 
         try {
             let redirectTo = window.location.origin;
-            if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-                redirectTo = 'https://tfit.com.br/';
-            }
 
             console.log(`[Auth] Iniciando Login Google. Redirecionando para: ${redirectTo}`);
 
@@ -317,6 +331,50 @@ class AuthManager {
             };
         } catch (error) {
             console.error('[Auth] Erro Cadastro:', error.message);
+            return { success: false, message: this.translateAuthError(error) };
+        }
+    }
+
+    async signUpWithoutLogin(email, password, metadata, extraProfileData = null) {
+        try {
+            console.log(`[Auth] Tentando cadastro administrativo para: ${email}`);
+            
+            // Usando a lib original guardada no supabase-config.js
+            const lib = window.supabaseLib || window.supabase;
+            const tempClient = lib.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+                auth: { persistSession: false, autoRefreshToken: false }
+            });
+
+            const { data, error: signUpError } = await tempClient.auth.signUp({
+                email,
+                password,
+                options: {
+                    data: metadata,
+                    emailRedirectTo: window.location.origin
+                }
+            });
+
+            if (signUpError) throw signUpError;
+
+            // If we have extra data and a user was created, update the profile using the new user's session
+            if (data.user && extraProfileData) {
+                const { error: updateError } = await tempClient
+                    .from('profiles')
+                    .update(extraProfileData)
+                    .eq('id', data.user.id);
+                
+                if (updateError) {
+                    console.warn('[Auth] Erro ao atualizar dados extras do perfil (administrativo):', updateError.message);
+                }
+            }
+
+            return { 
+                success: true, 
+                user: data.user,
+                requireConfirmation: !data.session 
+            };
+        } catch (error) {
+            console.error('[Auth] Erro Cadastro Adm:', error.message);
             return { success: false, message: this.translateAuthError(error) };
         }
     }
@@ -414,10 +472,6 @@ class AuthManager {
         }
     }
 
-    /**
-     * Checks if an email is already registered and what role it has.
-     * Useful for preventing cross-role registration.
-     */
     async checkEmailRole(email) {
         try {
             const { data, error } = await window.supabase
@@ -435,6 +489,27 @@ class AuthManager {
         } catch (err) {
             console.error('[Auth] Exceção ao verificar role:', err);
             return null;
+        }
+    }
+
+    async updateProfileDirect(userId, data) {
+        try {
+            const { error } = await window.supabase
+                .from('profiles')
+                .update(data)
+                .eq('id', userId);
+
+            if (error) throw error;
+            
+            // Sync with current user if it's the same
+            if (this.currentUser && this.currentUser.id === userId) {
+                this.currentUser = { ...this.currentUser, ...data };
+                this.saveSession(this.currentUser);
+            }
+            return true;
+        } catch (err) {
+            console.error('[Auth] Erro ao atualizar perfil:', err);
+            return false;
         }
     }
 }

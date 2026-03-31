@@ -83,6 +83,9 @@ router.addRoute('/personal/dashboard', async () => {
 
 
         const content = `
+        <!-- Error Reporting Banner -->
+        ${typeof UI.getErrorBannerHTML === 'function' ? UI.getErrorBannerHTML() : ''}
+
         <div class="page-header flex justify-between items-center">
             <div>
                 <h1 class="page-title">Olá, ${currentUser.name}! 👋</h1>
@@ -1061,26 +1064,53 @@ window.showAddStudentModal = window.showQuickAddStudentModal = () => {
             updated_at: new Date().toISOString()
         };
 
-        UI.showLoading('Salvando aluno...');
-        try {
-            const student = await db.create('profiles', studentData);
+UI.showLoading('Salvando aluno...');
+    try {
+        // 1. Check if email already exists
+        const existingRole = await auth.checkEmailRole(email);
+        if (existingRole) {
+            UI.hideLoading();
+            UI.showNotification('Email em uso', `Este email já está cadastrado como ${existingRole}.`, 'warning');
+            return false;
+        }
 
-            // Sync with alunos_planos (Marketplace mapping)
-            if (planId) {
-                const days = selectedPlan ? (selectedPlan.duracao_dias || 30) : 30;
-                const expiryDate = new Date();
-                expiryDate.setDate(expiryDate.getDate() + days);
-
-                await db.create('alunos_planos', {
-                    aluno_id: student.id,
-                    personal_id: currentUser.id,
-                    plano_id: planId,
-                    data_inicio: new Date().toISOString(),
-                    data_proxima_cobranca: expiryDate.toISOString(),
-                    status: 'ativo',
-                    updated_at: new Date().toISOString()
-                });
+        // 2. Create the Auth record with extra profile data (Administrative method)
+        const result = await auth.signUpWithoutLogin(email, password, 
+            { name, role: 'student' }, 
+            { 
+                phone: phone || '',
+                goal: goal || '',
+                weight: studentData.weight,
+                height: studentData.height,
+                sex: sex || '',
+                age: studentData.age,
+                status: 'active',
+                assigned_personal_id: currentUser.id,
+                personal_name: currentUser.name || ''
             }
+        );
+
+        if (!result.success) throw new Error(result.message);
+        
+        const studentId = result.user.id;
+        const student = { id: studentId, ...studentData };
+
+        // Sync with alunos_planos (Marketplace mapping)
+        if (planId) {
+            const days = selectedPlan ? (selectedPlan.duracao_dias || 30) : 30;
+            const expiryDate = new Date();
+            expiryDate.setDate(expiryDate.getDate() + days);
+
+            await db.create('alunos_planos', {
+                aluno_id: studentId,
+                personal_id: currentUser.id,
+                plano_id: planId,
+                data_inicio: new Date().toISOString(),
+                data_proxima_cobranca: expiryDate.toISOString(),
+                status: 'ativo',
+                updated_at: new Date().toISOString()
+            });
+        }
             UI.hideLoading();
             UI.showNotification('Sucesso!', 'Aluno cadastrado com sucesso', 'success');
 
@@ -2086,17 +2116,17 @@ window.viewAssessmentDetailsPersonal = (id) => {
             </div>
 
             <div class="photos-preview-strip mb-lg" style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px;">
-                ${a.photos && a.photos.length > 0 ? a.photos.map(p => `<img src="${p}" style="height: 180px; border-radius: 12px; border: 1px solid var(--border);">`).join('') : `
-                    ${a.photo_front ? `<img src="${a.photo_front}" style="height: 180px; border-radius: 12px; border: 1px solid var(--border);">` : ''}
-                    ${a.photo_side_right ? `<img src="${a.photo_side_right}" style="height: 180px; border-radius: 12px; border: 1px solid var(--border);">` : ''}
-                    ${a.photo_side_left ? `<img src="${a.photo_side_left}" style="height: 180px; border-radius: 12px; border: 1px solid var(--border);">` : ''}
+                ${(a.photos && a.photos.length > 0) ? a.photos.map(p => `<img src="${p}" style="height: 180px; border-radius: 12px; border: 1px solid var(--border);">`).join('') : `
+                    ${(a.photo_front || a.measurements?.photo_front) ? `<img src="${a.photo_front || a.measurements?.photo_front}" style="height: 180px; border-radius: 12px; border: 1px solid var(--border);">` : ''}
+                    ${(a.photo_side_right || a.measurements?.photo_side_right) ? `<img src="${a.photo_side_right || a.measurements?.photo_side_right}" style="height: 180px; border-radius: 12px; border: 1px solid var(--border);">` : ''}
+                    ${(a.photo_side_left || a.measurements?.photo_side_left) ? `<img src="${a.photo_side_left || a.measurements?.photo_side_left}" style="height: 180px; border-radius: 12px; border: 1px solid var(--border);">` : ''}
                 `}
             </div>
 
             <div class="analysis-section mb-lg">
                 <h4 class="text-primary font-bold mb-xs">🧠 Análise da T-FIT IA</h4>
                 <div class="p-md bg-light rounded-lg leading-relaxed text-sm">
-                    ${a.ai_analysis || 'Sem análise disponível.'}
+                    ${a.ai_analysis || a.measurements?.ai_analysis || a.notes || 'Sem análise disponível.'}
                 </div>
             </div>
 

@@ -17,23 +17,41 @@ window.PaymentHelper = {
     checkStudentAccess: (user) => {
         if (!user) return { status: 'blocked', blocked: true, daysLeft: 0, permissions: { ai: false, personal: false, base: false } };
 
-        // 1. ADM always has full access
-        if (user.role === 'admin') return { status: 'active', blocked: false, daysLeft: 999, permissions: { ai: true, personal: true, base: true } };
+        // 1. ADM or VIP always has full access
+        if (user.role === 'admin' || user.is_vip) return { status: 'active', blocked: false, daysLeft: 9999, permissions: { ai: true, personal: true, base: true } };
 
         const now = new Date();
-        const permissions = { ai: false, personal: false, base: false };
+        
+        // Initial permissions based on new direct flags
+        const permissions = { 
+            ai: user.assinatura_tfit === true, 
+            personal: user.assinatura_personal === true, 
+            base: (user.assinatura_tfit === true || user.assinatura_personal === true) 
+        };
 
-        // 2. PLATFORM FEE / SYSTEM ACCESS (ACTIVE ONLY)
+        // If either flag is true, we can consider the status 'active' for that part
+        // But we still check for general plan expiration for backward compatibility
         const expiryStr = user.data_vencimento || user.plan_expiry;
         if (expiryStr && user.plano_ativo !== false) {
             const dueDate = new Date(expiryStr);
             if (dueDate > now) {
-                permissions.base = true; permissions.ai = true; permissions.personal = true;
+                permissions.base = true; 
+                permissions.ai = true; 
+                permissions.personal = true;
                 return { status: 'active', blocked: false, daysLeft: Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24)), permissions };
             }
         }
 
-        // 3. MARKETPLACE ACCESS (Student hiring Personal Plans)
+        // 3. TRIAL ACCESS (3 Days for New Users) - Grants full access during trial
+        if (user.trial_started_at && !user.trial_used) {
+            const startDate = new Date(user.trial_started_at);
+            const trialEnd = new Date(startDate.getTime() + (3 * 24 * 60 * 60 * 1000));
+            if (trialEnd > now) {
+                return { status: 'trial', blocked: false, daysLeft: Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24)), permissions: { ai: true, personal: true, base: true } };
+            }
+        }
+
+        // 4. MARKETPLACE ACCESS (Student hiring Personal Plans)
         if (user.role === 'student' || user.type === 'student') {
             const marketplacePlan = db.query('alunos_planos', ap => ap.aluno_id === user.id && ap.status === 'ativo')[0];
             if (marketplacePlan) {
@@ -44,7 +62,6 @@ window.PaymentHelper = {
                 }
             }
 
-            // Legacy Contracts Check (Just in case Pix was mapped here)
             const activeContract = db.query('contracts', c => c.student_id === user.id && c.status === 'active')[0];
             if (activeContract) {
                 const dueDate = activeContract.end_date ? new Date(activeContract.end_date) : null;
@@ -55,7 +72,7 @@ window.PaymentHelper = {
             }
         }
 
-        // 4. SELF-HEALING (Auto-Activation via Approved History)
+        // 5. SELF-HEALING (Auto-Activation via Approved History)
         if (typeof db !== 'undefined') {
             const latestPayment = (user.role === 'student')
                 ? db.getAll('pagamentos').filter(p => p.aluno_id === user.id && p.status === 'aprovado').sort((a, b) => new Date(b.created_at || b.data_pagamento) - new Date(a.created_at || a.data_pagamento))[0]
@@ -72,15 +89,6 @@ window.PaymentHelper = {
             }
         }
 
-        // 5. TRIAL ACCESS (3 Days for New Users)
-        if (user.trial_started_at && !user.trial_used) {
-            const startDate = new Date(user.trial_started_at);
-            const trialEnd = new Date(startDate.getTime() + (3 * 24 * 60 * 60 * 1000));
-            if (trialEnd > now) {
-                return { status: 'trial', blocked: false, daysLeft: Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24)), permissions: { ai: true, personal: true, base: true } };
-            }
-        }
-
         // 6. PLATFORM FEE (GRACE PERIOD)
         if (expiryStr && user.plano_ativo !== false) {
             const dueDate = new Date(expiryStr);
@@ -92,6 +100,11 @@ window.PaymentHelper = {
                     return { status: 'grace_period', blocked: false, warning: true, daysOverdue: diffDays, daysLeft: Math.max(0, (graceDays + 1) - diffDays), permissions };
                 }
             }
+        }
+
+        // 7. FINALLY CHECK NEW FLAGS
+        if (permissions.ai || permissions.personal) {
+            return { status: 'active', blocked: false, daysLeft: 30, permissions };
         }
 
         return { status: 'blocked', blocked: true, daysLeft: 0, permissions };
@@ -160,43 +173,51 @@ window.PaymentHelper = {
         // T-Feed is always free
         if (actionName.toLowerCase().includes('feed')) return callback();
 
+        if (!user) {
+            user = (typeof auth !== 'undefined') ? auth.getCurrentUser() : null;
+        }
+        if (!user) {
+            console.error('[PaymentHelper] No user context available');
+            return;
+        }
+
         const access = PaymentHelper.checkStudentAccess(user);
 
         // Check if specific permission is granted
-        if (access.permissions[type]) {
+        if (access.permissions && access.permissions[type]) {
             return callback();
         }
 
         // If not granted, show appropriate modal
         const isTrialAvailable = !user.trial_used && !user.trial_started_at;
 
-        let title = 'Assinatura Necessária 💎';
-        let message = `Para usar ${actionName}, você precisa de um plano ativo.`;
-        let btnLabel = 'Ver Planos';
-        let btnAction = () => router.navigate('/payment/plans');
-
-        if (type === 'ai') {
-            title = 'Plano IA Requerido 🤖';
-            message = `A ferramenta ${actionName} utiliza nossa Inteligência Artificial exclusiva e requer o plano <b>T-FIT IA Pros</b>.`;
-        }
+        let title = 'Plano Requerido 🔒';
+        let message = `Esta função faz parte do plano ${type === 'ai' ? 'T-FIT' : 'Personal'}.`;
+        let btnLabel = type === 'ai' ? 'Assinar Plano T-FIT' : 'Contratar Personal';
+        let btnAction = () => {
+            if (type === 'ai') router.navigate('/payment/plans?filter=ai');
+            else router.navigate('/student/marketplace');
+        };
 
         if (access.status === 'blocked' && isTrialAvailable) {
             title = 'Período de Experiência 🎁';
-            message = `Você ainda não ativou seu teste grátis! Deseja ativar agora <b>3 DIAS</b> de acesso TOTAL a todas as funções (IA + Personal)?`;
+            message = `Você ainda não ativou seu teste grátis! Deseja ativar agora <b>3 DIAS</b> de acesso TOTAL a todas as funções com IA?`;
             btnLabel = '🚀 Ativar 3 Dias Grátis';
             btnAction = () => window.PaymentHelper.activateTrial(user.id, callback);
         }
 
         UI.showModal(title, `
             <div class="text-center p-lg">
-                <div style="font-size: 3.5rem; margin-bottom: 1.5rem;">${type === 'ai' ? '🤖' : '🔒'}</div>
+                <div style="font-size: 3.5rem; margin-bottom: 1.5rem;">${type === 'ai' ? '🤖' : '👤'}</div>
                 <h3 class="mb-md">${title}</h3>
                 <p class="text-muted mb-xl">${message}</p>
                 <div class="flex flex-col gap-sm">
                     <button class="btn btn-primary btn-block shadow-glow" id="premium-action-btn">
                         ${btnLabel}
                     </button>
+                    ${!isTrialAvailable ? `
                     <button class="btn btn-ghost btn-block" onclick="UI.closeModal()">Agora não</button>
+                    ` : '<button class="btn btn-ghost btn-block" onclick="UI.closeModal()">Agora não</button>'}
                 </div>
             </div>
         `);
@@ -402,11 +423,25 @@ window.startMercadoPagoSubscription = async (planId, receiverId) => {
 
         UI.hideLoading();
 
-        if (error) throw error;
+        if (error) {
+            if (typeof ErrorMonitor !== 'undefined') {
+                ErrorMonitor.logAutomatic('SUBSCRIPTION_FAILED', {
+                    message: error.message,
+                    plan_id: planId,
+                    user_id: user.id
+                }, 'PaymentHelper.startMercadoPagoSubscription');
+            }
+            throw error;
+        }
+        
         if (data && data.init_point) {
             window.location.href = data.init_point;
         } else {
-            throw new Error(data?.error || 'Não foi possível gerar o link de assinatura.');
+            const errMsg = data?.error || 'Não foi possível gerar o link de assinatura.';
+            if (typeof ErrorMonitor !== 'undefined') {
+                ErrorMonitor.logAutomatic('SUBSCRIPTION_DATA_ERROR', { message: errMsg, data: data }, 'PaymentHelper.startMercadoPagoSubscription');
+            }
+            throw new Error(errMsg);
         }
 
     } catch (err) {
@@ -493,36 +528,46 @@ window.startMercadoPagoCheckout = async (amount, planId, receiverId, refType = '
                     body = error.context;
                 }
             } catch (e) { }
-            throw new Error(body?.error || error.message || 'Erro ao conectar com servidor de pagamento');
+
+            const errMsg = body?.error || error.message || 'Erro ao conectar com servidor de pagamento';
+            
+            if (typeof ErrorMonitor !== 'undefined') {
+                ErrorMonitor.logAutomatic('PAYMENT_CHECKOUT_FAILED', {
+                    message: errMsg,
+                    plan_id: planId,
+                    amount: amount
+                }, 'PaymentHelper.startMercadoPagoCheckout');
+            }
+            
+            throw new Error(errMsg);
         }
 
         // --- SAFETY PARSE ---
-        // If data arrives as a string, parse it.
         if (typeof data === 'string') {
             try {
-                console.log("[MP Checkout] Auto-parsing response string...");
                 data = JSON.parse(data);
-            } catch (e) {
-                console.error("[MP Checkout] Fail to parse response string:", data);
-            }
+            } catch (e) { }
         }
 
         if (data && (data.error || data.success === false)) {
-            console.error("[MP Server Error]", data.error);
-            throw new Error(data.error || 'O Mercado Pago não pôde gerar o link no momento.');
+            const errMsg = data.error || 'O Mercado Pago não pôde gerar o link no momento.';
+            if (typeof ErrorMonitor !== 'undefined') {
+                ErrorMonitor.logAutomatic('PAYMENT_SERVER_ERROR', { message: errMsg, data: data }, 'PaymentHelper.startMercadoPagoCheckout');
+            }
+            throw new Error(errMsg);
         }
 
         if (data && data.init_point) {
-            // Priority 1: Direct link (init_point)
             window.location.href = data.init_point;
         } else if (data && data.preferenceId) {
-            // Priority 2: Preference ID (Redirect to MP)
             const mpCheckoutUrl = `https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=${data.preferenceId}`;
             window.location.href = mpCheckoutUrl;
         } else {
-            console.error("[MP Data Mismatch] O servidor retornou dados incompletos:", data);
-            const serverMsg = data?.error || (data ? JSON.stringify(data) : 'Nenhum dado retornado');
-            throw new Error(`O servidor de pagamento não retornou um link válido. Detalhes: ${serverMsg}`);
+            const errMsg = `O servidor de pagamento não retornou um link válido.`;
+            if (typeof ErrorMonitor !== 'undefined') {
+                ErrorMonitor.logAutomatic('PAYMENT_INVALID_RESPONSE', { data: data }, 'PaymentHelper.startMercadoPagoCheckout');
+            }
+            throw new Error(errMsg);
         }
 
     } catch (err) {
@@ -532,10 +577,9 @@ window.startMercadoPagoCheckout = async (amount, planId, receiverId, refType = '
         let errorTitle = 'Erro no Checkout 💳';
         let errorMessage = err.message || 'Não foi possível iniciar o pagamento via Mercado Pago.';
 
-        // Detailed guidance for encryption errors
         if (errorMessage.includes('ENCRYPTION_KEY') || errorMessage.includes('descriptografar')) {
             errorTitle = 'Configuração Pendente ⚙️';
-            errorMessage = `O vendedor (Personal/Admin) precisa atualizar as credenciais do Mercado Pago para este plano. <br><br><small>Dica para o Personal: Vá em Painel > Configurações e re-insira seu Access Token.</small>`;
+            errorMessage = `O vendedor (Personal/Admin) precisa atualizar as credenciais do Mercado Pago para este plano.`;
         }
 
         UI.showNotification(errorTitle, errorMessage, 'error');

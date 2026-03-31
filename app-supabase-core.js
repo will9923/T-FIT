@@ -13,7 +13,7 @@ class Database {
             'profiles', 'workouts', 'diets', 'assessments',
             'plans', 'payments', 'contracts',
             'posts', 'stories', 'conversations', 'messages', 'comments', 'notifications',
-            'exercise_videos', 'ads'
+            'exercise_videos', 'ads', 'tfit_recompensas', 'tfit_missoes', 'tfit_missoes_usuario', 'app_convites', 'tfit_resgates'
         ];
         this.dataLoaded = false;
         this.subscriptions = {}; // Supabase realtime subscriptions
@@ -168,7 +168,11 @@ class Database {
         try {
             const mappedCol = this._getCollectionName(collection);
             const newData = { ...data, created_at: new Date().toISOString() };
-            delete newData.id; // Let Supabase generate UUID
+            
+            // Only delete id if it's not provided or is a temporary one
+            if (!newData.id || typeof newData.id === 'string' && newData.id.startsWith('temp_')) {
+                delete newData.id;
+            }
 
             const { data: inserted, error } = await window.supabase
                 .from(mappedCol)

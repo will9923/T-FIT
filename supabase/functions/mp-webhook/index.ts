@@ -159,7 +159,8 @@ serve(async (req: Request) => {
                         const { data: adminProfile } = await supabaseClient.from('profiles').select('id').eq('role', 'admin').limit(1).single();
                         receiverId = adminProfile?.id;
                     } else {
-                        throw new Error(`Plano base não encontrado: ${plan_id}`);
+                        console.error(`[MP Webhook] Plano Base Não Encontrado. Plan ID: ${plan_id}`);
+                        throw new Error(`Plano base não encontrado: ${plan_id || 'ID Ausente'}`);
                     }
                 } else {
                     planName = basePlan.name;

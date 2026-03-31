@@ -284,10 +284,10 @@ router.addRoute('/student/onboarding', () => {
                     <p class="text-muted" style="font-size: 1.1rem;">Como você deseja treinar hoje?</p>
                 </div>
 
-                <div class="grid grid-2 gap-xl">
+                <div class="grid grid-1" style="max-width: 500px; margin: 0 auto;">
                     <!-- Option 1: AI -->
-                    <div class="card p-xl flex flex-col items-center text-center cursor-pointer hover:border-primary transition-all" 
-                         style="border: 2px solid transparent; min-height: 400px;"
+                    <div class="card p-xl flex flex-col items-center text-center cursor-pointer hover:border-primary transition-all shadow-glow" 
+                         style="border: 2px solid var(--primary); min-height: 400px; border-radius: 20px;"
                          onclick="window.selectMode('ai')">
                         <div style="font-size: 4rem; margin-bottom: 1.5rem;">🤖</div>
                         <h2 class="mb-md">${featuredPlan.name}</h2>
@@ -298,25 +298,7 @@ router.addRoute('/student/onboarding', () => {
                             ${featuredPlan.features.map(f => `<li class="mb-sm">✅ ${f}</li>`).join('')}
                             <li class="mb-sm">💰 <strong>R$ ${parseFloat(featuredPlan.price || 0).toFixed(2).replace('.', ',')}/${featuredPlan.billing_cycle === 'Mensal' ? 'mês' : 'ciclo'}</strong></li>
                         </ul>
-                        <button class="btn btn-primary btn-block mt-auto">Escolher IA</button>
-                    </div>
-
-                    <!-- Option 2: Personal -->
-                    <div class="card p-xl flex flex-col items-center text-center cursor-pointer hover:border-secondary transition-all"
-                         style="border: 2px solid transparent; min-height: 400px;"
-                         onclick="window.router.navigate('/student/marketplace')">
-                        <div style="font-size: 4rem; margin-bottom: 1.5rem;">👥</div>
-                        <h2 class="mb-md">Personal Trainer</h2>
-                        <p class="text-muted mb-lg">
-                            Escolha um profissional dedicado para acompanhar sua evolução de perto e personalizar seus resultados.
-                        </p>
-                        <ul class="text-left mb-xl" style="padding-left: 0; list-style: none;">
-                            <li class="mb-sm">✅ Acompanhamento humano</li>
-                            <li class="mb-sm">✅ Tira-dúvidas no WhatsApp</li>
-                            <li class="mb-sm">✅ Correção de movimentos</li>
-                            <li class="mb-sm">💰 <strong>Preço do Personal</strong></li>
-                        </ul>
-                        <button class="btn btn-secondary btn-block mt-auto">Buscar Personal</button>
+                        <button class="btn btn-primary btn-block mt-auto btn-lg" style="font-weight: 800;">Ativar Inteligência Artificial</button>
                     </div>
                 </div>
             </div>

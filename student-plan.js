@@ -14,7 +14,7 @@ router.addRoute('/student/plan', () => {
     let content = `
         <div class="page-header">
             <h1 class="page-title">${plan ? 'Meu Plano Assinado 💎' : 'Assinatura & Planos'}</h1>
-            <p class="page-subtitle">${plan ? 'Detalhes da sua parceria com seu personal' : 'Escolha um plano para começar sua transformação'}</p>
+            <p class="page-subtitle">${plan ? 'Detalhes do seu plano T-FIT' : 'Escolha um plano para começar sua transformação'}</p>
         </div>
     `;
 
@@ -78,13 +78,11 @@ router.addRoute('/student/plan', () => {
                 <div class="card-body flex justify-between items-center">
                     <div>
                         <h4>Precisa de ajuda com seu plano?</h4>
-                        <p class="text-muted mb-0">Entre em contato com seu personal trainer.</p>
+                        <p class="text-muted mb-0">Entre em contato com nosso suporte exclusivo T-FIT.</p>
                     </div>
-                    ${currentUser.personal_id ? `
-                        <button class="btn btn-outline" onclick="contactMyPersonal()">
-                            💬 Falar com Suporte
-                        </button>
-                    ` : ''}
+                    <button class="btn btn-outline" onclick="window.open('https://wa.me/5511911917087', '_blank')">
+                        💬 Falar com Suporte
+                    </button>
                 </div>
             </div>
         `;
@@ -105,11 +103,7 @@ router.addRoute('/student/plan', () => {
                 'Você está aproveitando o período de degustação da plataforma. Assine um plano abaixo para garantir seu acesso contínuo.' :
                 'Você ainda não possui um plano de assinatura vinculado à sua conta. Escolha uma das opções abaixo para começar.'}
                     </p>
-                    ${currentUser.personal_id ? `
-                        <button class="btn btn-primary" onclick="contactMyPersonal()">
-                            💬 Falar com meu Personal
-                        </button>
-                    ` : ''}
+
                 </div>
             </div>
 

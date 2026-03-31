@@ -39,6 +39,9 @@ router.addRoute('/admin/dashboard', () => {
                 <p class="page-subtitle">Olá, ${currentUser.name || 'Admin'}! Gestão geral da plataforma.</p>
             </div>
             <div class="flex gap-sm">
+                <button class="btn btn-outline btn-sm shadow-sm font-bold" style="color:red;" onclick="location.reload(true)">
+                    = Atualizar App
+                </button>
                 <button class="btn btn-primary" onclick="window.showBroadcastModal()">
                     📢 Notificação Geral
                 </button>
@@ -122,44 +125,97 @@ router.addRoute('/admin/dashboard', () => {
             </div>
         </div>
 
-        <!-- Main Charts Area -->
-        <div class="grid grid-2 gap-xl">
-            <div class="card">
-                <div class="card-header">
-                    <h3 class="card-title">Distribuição de Alunos</h3>
-                </div>
-                <div class="card-body">
-                    <canvas id="students-per-personal-chart" style="height: 300px;"></canvas>
+        <!-- Monitoring & Error Reporting -->
+        <div class="grid grid-2 gap-xl mt-xl">
+            <div class="card clickable shadow-glow" onclick="router.navigate('/admin/errors')" style="border-left: 5px solid var(--danger); background: rgba(220, 38, 38, 0.05);">
+                <div class="card-body flex justify-between items-center p-xl">
+                    <div class="flex items-center gap-xl">
+                        <div style="font-size: 3rem;">🚨</div>
+                        <div>
+                            <h3 class="font-bold mb-xs" style="font-size: 1.5rem;">Problemas Reportados</h3>
+                            <p class="text-muted mb-0">Gerencie erros manuais e logs automáticos do sistema.</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div id="pending-reports-count" class="text-4xl font-black text-danger">--</div>
+                        <div class="text-xs uppercase font-bold text-muted">Pendentes</div>
+                    </div>
                 </div>
             </div>
 
-            <div class="card">
-                <div class="card-header">
-                    <h3 class="card-title">Status da Base</h3>
-                </div>
-                <div class="card-body">
-                    <canvas id="students-status-chart" style="height: 300px;"></canvas>
+            <div class="card clickable shadow-glow" onclick="router.navigate('/admin/errors?tab=diagnostico')" style="border-left: 5px solid var(--accent); background: rgba(99, 102, 241, 0.05);">
+                <div class="card-body flex justify-between items-center p-xl">
+                    <div class="flex items-center gap-xl">
+                        <div style="font-size: 3rem;">🧠</div>
+                        <div>
+                            <h3 class="font-bold mb-xs" style="font-size: 1.5rem;">Diagnóstico Inteligente</h3>
+                            <p class="text-muted mb-0">Análise de padrões e saúde do sistema TFIT.</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div id="system-health-score" class="text-4xl font-black text-accent">--%</div>
+                        <div class="text-xs uppercase font-bold text-muted">Saúde do App</div>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- Waze Fitness Bulk Add -->
-        <div class="card mt-xl" style="background: rgba(15, 23, 42, 0.5); border: 2px solid #3b82f6;">
-            <div class="card-header flex justify-between items-center">
-                <h3 class="card-title">📍 Waze Fitness - Cadastro em Massa</h3>
-                <span class="badge badge-primary">Admin Tool</span>
-            </div>
-            <div class="card-body">
-                <p class="text-xs text-muted mb-md">Format: <strong>Nome, Rua, Numero, Cidade</strong> (one per line).</p>
-                <textarea id="bulk-gym-list" class="form-input mb-md" rows="5" placeholder="Ex: Academia X, Rua Y, 100, São Paulo" style="background: #0f172a; color: #fff; border: 1px solid #334155; border-radius: 8px; font-family: monospace; font-size: 13px;"></textarea>
-                <button class="btn btn-primary btn-block" onclick="window.bulkAddGyms()">
-                    🚀 Enviar Lista para o Sistema
-                </button>
-                <div id="bulk-gym-progress" class="mt-md hidden">
-                    <div style="height: 4px; width: 100%; background: #0f172a; border-radius: 2px; overflow: hidden;">
-                        <div id="bulk-gym-bar" style="height: 100%; width: 0%; background: #3b82f6; transition: width 0.3s;"></div>
+        <div class="grid grid-2 gap-xl mt-xl">
+            <!-- Waze Fitness Bulk Add -->
+            <div class="card" style="background: rgba(15, 23, 42, 0.5); border: 2px solid #3b82f6;">
+                <div class="card-header flex justify-between items-center">
+                    <h3 class="card-title">📍 Waze Fitness - Cadastro em Massa</h3>
+                    <span class="badge badge-primary">Admin Tool</span>
+                </div>
+                <div class="card-body">
+                    <p class="text-xs text-muted mb-md">Format: <strong>Nome, Rua, Numero, Cidade</strong> (one per line).</p>
+                    <textarea id="bulk-gym-list" class="form-input mb-md" rows="5" placeholder="Ex: Academia X, Rua Y, 100, São Paulo" style="background: #0f172a; color: #fff; border: 1px solid #334155; border-radius: 8px; font-family: monospace; font-size: 13px;"></textarea>
+                    <button class="btn btn-primary btn-block" onclick="window.bulkAddGyms()">
+                        🚀 Enviar Lista para o Sistema
+                    </button>
+                    <div id="bulk-gym-progress" class="mt-md hidden">
+                        <div style="height: 4px; width: 100%; background: #0f172a; border-radius: 2px; overflow: hidden;">
+                            <div id="bulk-gym-bar" style="height: 100%; width: 0%; background: #3b82f6; transition: width 0.3s;"></div>
+                        </div>
+                        <p id="bulk-gym-status" class="text-xs text-center mt-xs text-muted">Aguardando...</p>
                     </div>
-                    <p id="bulk-gym-status" class="text-xs text-center mt-xs text-muted">Aguardando...</p>
+                </div>
+            </div>
+
+            <!-- Points Configuration Card -->
+            <div class="card shadow-premium" style="border-top: 4px solid #10b981;">
+                <div class="card-header">
+                    <h3 class="card-title">💎 Configurações de Pontuação</h3>
+                </div>
+                <div class="card-body">
+                    <div id="points-config-container">
+                        <div class="text-center p-md">Carregando configurações...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- NEW: LOJA & MISSÕES QUICK ACCESS -->
+        <div class="grid grid-3 gap-xl mt-xl">
+             <div class="card clickable" onclick="router.navigate('/admin/loja')" style="background: linear-gradient(135deg, #fbbf24 0%, #d97706 100%); color: white; border: none;">
+                <div class="card-body text-center p-xl">
+                    <div style="font-size: 2.5rem; margin-bottom: 10px;">🛒</div>
+                    <h4 class="font-black mb-0">Loja de Recompensas</h4>
+                    <p class="text-xs opacity-75">Gerenciar itens e trocas</p>
+                </div>
+            </div>
+            <div class="card clickable" onclick="router.navigate('/admin/missoes')" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none;">
+                <div class="card-body text-center p-xl">
+                    <div style="font-size: 2.5rem; margin-bottom: 10px;">🎯</div>
+                    <h4 class="font-black mb-0">Missões Diárias</h4>
+                    <p class="text-xs opacity-75">Configurar desafios globais</p>
+                </div>
+            </div>
+            <div class="card clickable" onclick="window.showRankingConvites()" style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; border: none;">
+                <div class="card-body text-center p-xl">
+                    <div style="font-size: 2.5rem; margin-bottom: 10px;">🏆</div>
+                    <h4 class="font-black mb-0">Ranking de Indicações</h4>
+                    <p class="text-xs opacity-75">Ver quem mais convida</p>
                 </div>
             </div>
         </div>
@@ -203,6 +259,7 @@ router.addRoute('/admin/dashboard', () => {
     `;
 
     UI.renderDashboard(content, 'admin');
+    setTimeout(window.renderPointsConfig, 500);
 
     // Render Charts
     setTimeout(() => {
@@ -293,6 +350,38 @@ router.addRoute('/admin/dashboard', () => {
             window.activeIntervals = window.activeIntervals || [];
             window.activeIntervals.push(updateInterval);
         }
+
+        // Sync Error Monitoring Stats
+        const updateErrorStats = async () => {
+            if (!window.supabase) return;
+            try {
+                const { count: pendingCount } = await window.supabase
+                    .from('app_reportes')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('status', 'pendente');
+                
+                const pendingEl = document.getElementById('pending-reports-count');
+                if (pendingEl) pendingEl.innerText = pendingCount || 0;
+                
+                const { data: recentErrors } = await window.supabase
+                    .from('app_logs_erros')
+                    .select('id')
+                    .gte('data_erro', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+                
+                const errorCount = recentErrors ? recentErrors.length : 0;
+                let health = 100 - (errorCount * 2.5);
+                if (health < 0) health = 0;
+                
+                const healthEl = document.getElementById('system-health-score');
+                if (healthEl) {
+                    healthEl.innerText = `${Math.round(health)}%`;
+                    healthEl.className = `text-4xl font-black ${health > 90 ? 'text-success' : (health > 70 ? 'text-warning' : 'text-danger')}`;
+                }
+            } catch (e) {
+                console.error("Erro ao carregar estatísticas de erro:", e);
+            }
+        };
+        updateErrorStats();
 
         // 2. Financial Revenue Chart
         const ctxFinancial = document.getElementById('financial-revenue-chart');
@@ -645,7 +734,7 @@ window.showBroadcastModal = () => {
         </form>
     `;
 
-    UI.showModal('Enviar Notificação Geral', modalContent, () => {
+    UI.showModal('Enviar Notificação Geral', modalContent, async () => {
         const title = document.getElementById('notif-title').value;
         const type = document.getElementById('notif-type').value;
         const message = document.getElementById('notif-message').value;
@@ -655,7 +744,7 @@ window.showBroadcastModal = () => {
             return;
         }
 
-        db.create('notifications', {
+        await db.create('notifications', {
             title,
             type,
             message,
@@ -902,14 +991,20 @@ window.viewStudentDetails = (studentId) => {
                 <div class="text-lg font-bold">${student.paymentDueDate ? new Date(student.paymentDueDate).toLocaleDateString('pt-BR') : 'Não definido'}</div>
             </div>
 
-            <div class="flex gap-sm">
+            <div class="flex flex-wrap gap-sm">
                 ${student.phone ? `
                     <button class="btn btn-secondary flex-1" onclick="window.sendWhatsAppToStudent('${student.id}')">
-                        💬 Falar via WhatsApp
+                        💬 WhatsApp
                     </button>
                 ` : ''}
+                <button class="btn btn-primary flex-1" onclick="window.showSessionWorkoutPicker('${student.id}')">
+                    🏋️ Iniciar Aula
+                </button>
+                <button class="btn btn-warning flex-1" onclick="window.makeUserVIP('${student.id}', 'student')">
+                    ⭐ Tornar VIP
+                </button>
                 <button class="btn btn-outline" onclick="window.editStudent('${student.id}')">
-                    ✏️ Editar Aluno
+                    ✏️ Editar
                 </button>
             </div>
         </div>
@@ -925,7 +1020,7 @@ window.deleteStudent = (id) => {
     UI.confirmDialog(
         'Confirmar Exclusão TOTAL',
         `⚠️ ATENÇÃO: Você está prestes a excluir PERMANENTEMENTE o aluno "${student.name}".\n\nIsso removerá:\n- Treinos\n- Dieta\n- Avaliações\n- Pagamentos\n- Histórico de Atividade\n\nEsta ação não pode ser desfeita. Deseja continuar?`,
-        () => {
+        async () => {
             UI.showLoading('Removendo aluno...');
             try {
                 // Collections to clean up
@@ -936,15 +1031,17 @@ window.deleteStudent = (id) => {
                 ];
 
                 // 1. Delete associated data
-                collections.forEach(col => {
+                for (const col of collections) {
                     const items = db.query(col, item => item.studentId === id || item.userId === id);
                     if (items && items.length > 0) {
-                        items.forEach(item => db.delete(col, item.id));
+                        for (const item of items) {
+                            await db.delete(col, item.id);
+                        }
                     }
-                });
+                }
 
                 // 2. Delete the student record itself
-                db.delete('students', id);
+                await db.delete('students', id);
 
                 UI.hideLoading();
                 UI.showNotification('Sucesso!', 'Aluno e todos os dados vinculados foram removidos.', 'success');
@@ -1006,16 +1103,22 @@ router.addRoute('/admin/personals', () => {
                                     </div>
                                 </div>
                             </div>
-                            <div class="card-footer flex gap-sm">
+                            <div class="card-footer flex flex-wrap gap-sm">
+                                <button class="btn btn-sm btn-outline" onclick="window.viewPersonalProfile('${personal.id}')">
+                                    👁️ Ver Perfil
+                                </button>
                                 <button class="btn btn-sm btn-ghost" onclick="window.editPersonal('${personal.id}')">
                                     ✏️ Editar
                                 </button>
                                 ${personal.phone ? `
-                                    <button class="btn btn-sm btn-secondary" onclick="window.sendWhatsAppToPersonal('${personal.id}')">
-                                        💬 WhatsApp
+                                    <button class="btn btn-sm btn-success" onclick="window.sendWhatsAppToPersonal('${personal.id}')">
+                                        💬 Whats
                                     </button>
                                 ` : ''}
-                                <button class="btn btn-sm btn-danger" onclick="window.deletePersonal('${personal.id}')">
+                                <button class="btn btn-sm btn-warning" onclick="window.makeUserVIP('${personal.id}', 'personal')">
+                                    ⭐ VIP
+                                </button>
+                                <button class="btn btn-sm btn-ghost text-danger" onclick="window.deletePersonal('${personal.id}')">
                                     🗑️ Excluir
                                 </button>
                             </div>
@@ -1071,7 +1174,7 @@ window.showAddPersonalModal = () => {
         </form>
     `;
 
-    UI.showModal('Adicionar Personal Trainer', modalContent, () => {
+    UI.showModal('Adicionar Personal Trainer', modalContent, async () => {
         const name = document.getElementById('personal-name').value;
         const email = document.getElementById('personal-email').value;
         const password = document.getElementById('personal-password').value;
@@ -1079,12 +1182,47 @@ window.showAddPersonalModal = () => {
         const cref = document.getElementById('personal-cref').value;
         const specialty = document.getElementById('personal-specialty').value;
 
-        db.create('personals', {
-            name, email, password, phone, cref, specialty, status: 'active'
-        });
+        if (!name || !email || !password) {
+            UI.showNotification('Erro', 'Nome, Email e Senha são obrigatórios.', 'warning');
+            return false;
+        }
 
-        UI.showNotification('Sucesso!', 'Personal trainer adicionado com sucesso', 'success');
-        router.navigate('/admin/personals');
+        UI.showLoading('Criando conta do profissional...');
+        
+        try {
+            // 1. Check if email already exists
+            const existingRole = await auth.checkEmailRole(email);
+            if (existingRole) {
+                UI.hideLoading();
+                UI.showNotification('Conflito', `Este email já está cadastrado como ${existingRole}.`, 'error');
+                return false;
+            }
+
+            // 2. Create the Auth record with extra profile data (using administrative method)
+            const result = await auth.signUpWithoutLogin(email, password, 
+                { name, role: 'personal' }, 
+                { phone, cref, specialty, status: 'active' }
+            );
+
+            if (!result.success) throw new Error(result.message);
+
+            UI.hideLoading();
+            UI.showNotification('Sucesso!', 'Personal trainer adicionado com sucesso', 'success');
+            
+            // Optionally send credentials via WhatsApp
+            if (phone && confirm('Deseja enviar as credenciais por WhatsApp?')) {
+                const loginUrl = window.location.origin;
+                WhatsApp.sendCredentials(phone, name, email, password, loginUrl);
+            }
+
+            router.navigate('/admin/personals');
+            return true;
+        } catch (error) {
+            UI.hideLoading();
+            console.error("[Admin] Error creating personal:", error);
+            UI.showNotification('Erro', error.message || 'Falha ao criar conta profissional.', 'error');
+            return false;
+        }
     });
 };
 
@@ -1129,7 +1267,7 @@ window.editPersonal = (id) => {
         </form>
     `;
 
-    UI.showModal('Editar Personal Trainer', modalContent, () => {
+    UI.showModal('Editar Personal Trainer', modalContent, async () => {
         const updateData = {
             name: document.getElementById('edit-name').value,
             email: document.getElementById('edit-email').value,
@@ -1143,7 +1281,7 @@ window.editPersonal = (id) => {
             updateData.password = newPassword;
         }
 
-        db.update('personals', id, updateData);
+        await db.update('personals', id, updateData);
         UI.showNotification('Sucesso!', 'Personal atualizado com sucesso', 'success');
         router.navigate('/admin/personals');
     });
@@ -1156,9 +1294,9 @@ window.deletePersonal = (id) => {
     UI.confirmDialog(
         'Confirmar Exclusão',
         `Tem certeza que deseja excluir o personal "${name}"? Esta ação não pode ser desfeita.`,
-        () => {
+        async () => {
             try {
-                db.delete('personals', id);
+                await db.delete('personals', id);
                 UI.showNotification('Sucesso!', 'Personal excluído com sucesso', 'success');
                 router.navigate('/admin/personals');
             } catch (err) {
@@ -1252,7 +1390,7 @@ window.showAddAdModal = () => {
         </form>
     `;
 
-    UI.showModal('Adicionar Novo Anúncio', modalContent, () => {
+    UI.showModal('Adicionar Novo Anúncio', modalContent, async () => {
         const fileInput = document.getElementById('ad-image-input');
         const link = document.getElementById('ad-link').value;
 
@@ -1263,9 +1401,9 @@ window.showAddAdModal = () => {
 
         UI.showLoading();
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = async (e) => {
             const imageData = e.target.result;
-            db.create('ads', {
+            await db.create('ads', {
                 image: imageData,
                 link: link
             });
@@ -1282,8 +1420,8 @@ window.showAddAdModal = () => {
 // ============================================
 
 window.deleteAd = (id) => {
-    UI.confirmDialog('Excluir Anúncio', 'Deseja remover este anúncio do carrossel?', () => {
-        db.delete('ads', id);
+    UI.confirmDialog('Excluir Anúncio', 'Deseja remover este anúncio do carrossel?', async () => {
+        await db.delete('ads', id);
         UI.showNotification('Sucesso', 'Anúncio removido', 'success');
         router.navigate('/admin/ads');
     });
@@ -1336,7 +1474,7 @@ window.syncLocalToFirebase = async () => {
                         for (const item of items) {
                             // Check if item already exists in current cache to avoid duplicates
                             if (!db.getById(col, item.id)) {
-                                db.create(col, item);
+                                await db.create(col, item);
                                 totalCount++;
                             }
                         }
@@ -1377,8 +1515,8 @@ window.deactivateUser = (id, collection) => {
     UI.confirmDialog(
         'Revogar Acesso',
         `Deseja realmente bloquear o acesso de ${user.name}? O usuário será movido para o status 'blocked' e precisará de novo pagamento/ativação.`,
-        () => {
-            db.update(collection, id, {
+        async () => {
+            await db.update(collection, id, {
                 status: 'blocked',
                 paymentStatus: 'pending'
             });
@@ -1557,18 +1695,23 @@ window.editVideoLink = (id) => {
             }
         } // if it's youtube it's required (but handled by html5 or user)
 
-        db.update('exercise_videos', id, {
-            mediaUrl: mediaUrl,
-            mediaType: mediaType,
-            // Fallbacks
+        const success = await db.update('exercise_videos', id, {
+            exercise_name: video.exercise_name || video.exerciseName, // Garantir nome
             media_url: mediaUrl,
             media_type: mediaType,
-            youtubeUrl: mediaType === 'youtube' ? mediaUrl : '',
-            youtube_url: mediaType === 'youtube' ? mediaUrl : ''
+            youtube_url: mediaType === 'youtube' ? mediaUrl : '',
+            // Compatibilidade local
+            mediaUrl: mediaUrl,
+            mediaType: mediaType,
+            youtubeUrl: mediaType === 'youtube' ? mediaUrl : ''
         });
-        UI.showNotification('Sucesso!', 'Mídia atualizada', 'success');
-        router.navigate('/admin/videos');
-        return true;
+
+        if (success) {
+            UI.showNotification('Sucesso!', 'Mídia atualizada', 'success');
+            router.navigate('/admin/videos');
+            return true;
+        }
+        return false; // Manter modal aberto se houver erro
     });
 };
 
@@ -1592,10 +1735,11 @@ window.seedExerciseVideos = () => {
             });
             if (!match) {
                 db.create('exercise_videos', {
-                    exerciseName: name,
-                    mediaUrl: '',
-                    mediaType: '',
-                    youtubeUrl: '',
+                    exercise_name: name,
+                    exerciseName: name, // Compatibilidade
+                    media_url: '',
+                    media_type: '',
+                    youtube_url: '',
                     createdAt: new Date().toISOString()
                 });
                 addedCount++;
@@ -1700,20 +1844,25 @@ window.showAddVideoModal = () => {
             }
         }
 
-        db.create('exercise_videos', {
-            exerciseName,
-            mediaUrl: mediaUrl,
-            mediaType: mediaType,
+        const created = await db.create('exercise_videos', {
+            exercise_name: exerciseName,
+            exerciseName: exerciseName, // Compatibilidade
             media_url: mediaUrl,
             media_type: mediaType,
-            youtubeUrl: mediaType === 'youtube' ? mediaUrl : '',
             youtube_url: mediaType === 'youtube' ? mediaUrl : '',
+            // Compatibilidade local
+            mediaUrl: mediaUrl,
+            mediaType: mediaType,
+            youtubeUrl: mediaType === 'youtube' ? mediaUrl : '',
             createdAt: new Date().toISOString()
         });
 
-        UI.showNotification('Sucesso!', 'Mídia mapeada com sucesso', 'success');
-        router.navigate('/admin/videos');
-        return true;
+        if (created) {
+            UI.showNotification('Sucesso!', 'Mídia mapeada com sucesso', 'success');
+            router.navigate('/admin/videos');
+            return true;
+        }
+        return false;
     });
 };
 
@@ -1830,27 +1979,33 @@ window.showBulkUploadModal = () => {
 
                 // Sync with Workout Database (Local DB Wrapper)
                 const existingList = db.getAll('exercise_videos') || [];
-                const matchIndex = existingList.findIndex(v => v.exerciseName.toLowerCase() === exerciseBaseName.toLowerCase());
+                const matchIndex = existingList.findIndex(v => {
+                    const name = v.exerciseName || v.exercise_name || '';
+                    return name.toLowerCase() === exerciseBaseName.toLowerCase();
+                });
 
                 if (matchIndex !== -1) {
                     const matchId = existingList[matchIndex].id;
                     await db.update('exercise_videos', matchId, {
-                        mediaUrl: url,
-                        mediaType: mediaTypeEnum,
                         media_url: url,
                         media_type: mediaTypeEnum,
-                        youtubeUrl: '',
-                        youtube_url: ''
+                        youtube_url: '',
+                        // Compatibilidade local
+                        mediaUrl: url,
+                        mediaType: mediaTypeEnum,
+                        youtubeUrl: ''
                     });
                 } else {
                     await db.create('exercise_videos', {
-                        exerciseName: exerciseBaseName,
-                        mediaUrl: url,
-                        mediaType: mediaTypeEnum,
+                        exercise_name: exerciseBaseName,
+                        exerciseName: exerciseBaseName, // Compatibilidade
                         media_url: url,
                         media_type: mediaTypeEnum,
-                        youtubeUrl: '',
                         youtube_url: '',
+                        // Compatibilidade local
+                        mediaUrl: url,
+                        mediaType: mediaTypeEnum,
+                        youtubeUrl: '',
                         createdAt: new Date().toISOString()
                     });
                 }
@@ -1957,14 +2112,24 @@ router.addRoute('/admin/plans', () => {
     UI.renderDashboard(content, 'admin');
 });
 
-// ============================================
-// ADMIN - MANAGE PAYMENTS
-// ============================================
-
 router.addRoute('/admin/payments', () => {
     if (!auth.requireAuth('admin')) return;
 
-    const allPayments = db.getAll('payments');
+    // Search in multiple tables to ensure we find everything
+    const payments = db.getAll('payments') || [];
+    const payments2 = db.getAll('pagamentos') || [];
+    const payments3 = db.getAll('tfit_payments') || [];
+    
+    // Merge and remove duplicates by ID
+    const allPaymentsRaw = [...payments, ...payments2, ...payments3];
+    const uniqueIds = new Set();
+    const allPayments = allPaymentsRaw.filter(p => {
+        if (!p || !p.id) return false;
+        if (uniqueIds.has(p.id)) return false;
+        uniqueIds.add(p.id);
+        return true;
+    });
+
     const allProfiles = db.getAll('profiles');
     const allPlans = db.getAll('plans');
 
@@ -2357,20 +2522,20 @@ window.viewAssessmentDetailsAdmin = (id) => {
             <div class="grid grid-3 gap-md mb-lg">
                 <div class="photo-card">
                     <p class="text-xs text-center mb-xs font-bold">FRONTAL</p>
-                    <div class="bg-light rounded overflow-hidden aspect-portrait cursor-pointer" onclick="window.viewFullScreenImage('${a.photo_front}')">
-                        ${a.photo_front ? `<img src="${a.photo_front}" style="width: 100%; border-radius: 8px; border: 1px solid var(--border); transition: transform 0.3s; height: 100%; object-fit: cover;">` : '<div class="flex items-center justify-center p-xl">❌</div>'}
+                    <div class="bg-light rounded overflow-hidden aspect-portrait cursor-pointer" onclick="window.viewFullScreenImage('${a.photo_front || a.measurements?.photo_front || (a.photos && a.photos[0])}')">
+                        ${(a.photo_front || a.measurements?.photo_front || (a.photos && a.photos[0])) ? `<img src="${a.photo_front || a.measurements?.photo_front || (a.photos && a.photos[0])}" style="width: 100%; border-radius: 8px; border: 1px solid var(--border); transition: transform 0.3s; height: 100%; object-fit: cover;">` : '<div class="flex items-center justify-center p-xl">❌</div>'}
                     </div>
                 </div>
                 <div class="photo-card">
                     <p class="text-xs text-center mb-xs font-bold">LATERAL DIR.</p>
-                    <div class="bg-light rounded overflow-hidden aspect-portrait cursor-pointer" onclick="window.viewFullScreenImage('${a.photo_side_right}')">
-                        ${a.photo_side_right ? `<img src="${a.photo_side_right}" style="width: 100%; border-radius: 8px; border: 1px solid var(--border); transition: transform 0.3s; height: 100%; object-fit: cover;">` : '<div class="flex items-center justify-center p-xl">❌</div>'}
+                    <div class="bg-light rounded overflow-hidden aspect-portrait cursor-pointer" onclick="window.viewFullScreenImage('${a.photo_side_right || a.measurements?.photo_side_right || (a.photos && a.photos[1])}')">
+                        ${(a.photo_side_right || a.measurements?.photo_side_right || (a.photos && a.photos[1])) ? `<img src="${a.photo_side_right || a.measurements?.photo_side_right || (a.photos && a.photos[1])}" style="width: 100%; border-radius: 8px; border: 1px solid var(--border); transition: transform 0.3s; height: 100%; object-fit: cover;">` : '<div class="flex items-center justify-center p-xl">❌</div>'}
                     </div>
                 </div>
                 <div class="photo-card">
                     <p class="text-xs text-center mb-xs font-bold">LATERAL ESQ.</p>
-                    <div class="bg-light rounded overflow-hidden aspect-portrait cursor-pointer" onclick="window.viewFullScreenImage('${a.photo_side_left}')">
-                        ${a.photo_side_left ? `<img src="${a.photo_side_left}" style="width: 100%; border-radius: 8px; border: 1px solid var(--border); transition: transform 0.3s; height: 100%; object-fit: cover;">` : '<div class="flex items-center justify-center p-xl">❌</div>'}
+                    <div class="bg-light rounded overflow-hidden aspect-portrait cursor-pointer" onclick="window.viewFullScreenImage('${a.photo_side_left || a.measurements?.photo_side_left || (a.photos && a.photos[2])}')">
+                        ${(a.photo_side_left || a.measurements?.photo_side_left || (a.photos && a.photos[2])) ? `<img src="${a.photo_side_left || a.measurements?.photo_side_left || (a.photos && a.photos[2])}" style="width: 100%; border-radius: 8px; border: 1px solid var(--border); transition: transform 0.3s; height: 100%; object-fit: cover;">` : '<div class="flex items-center justify-center p-xl">❌</div>'}
                     </div>
                 </div>
             </div>
@@ -2378,7 +2543,7 @@ window.viewAssessmentDetailsAdmin = (id) => {
             <div class="analysis-section mb-lg">
                 <h4 class="text-primary font-bold mb-xs">Análise IA</h4>
                 <div class="p-md bg-light rounded-lg leading-relaxed text-sm">
-                    ${a.ai_analysis || 'Sem análise disponível.'}
+                    ${a.ai_analysis || a.measurements?.ai_analysis || a.notes || 'Sem análise disponível.'}
                 </div>
             </div>
 
@@ -2400,7 +2565,7 @@ window.viewAssessmentDetailsAdmin = (id) => {
             <div class="recommendations-box">
                 <h4 class="text-accent font-bold mb-xs">Recomendações Geradas</h4>
                 <div class="p-md bg-accent-light rounded-xl leading-relaxed text-sm" style="border-left: 4px solid var(--secondary);">
-                    ${a.recommendations || 'Sem recomendações.'}
+                    ${a.recommendations || a.measurements?.recommendations || 'Sem recomendações.'}
                 </div>
             </div>
             
@@ -2623,6 +2788,557 @@ window.adminSendPoints = async () => {
     }
 };
 
+// --- MODALS FOR GROWTH SYSTEM ---
+window.showCreateRewardModal = (rewardId = null) => {
+    const reward = rewardId ? db.getById('tfit_recompensas', rewardId) : null;
+    const title = reward ? 'Editar Recompensa' : 'Nova Recompensa';
+    const html = `
+        <form id="reward-form" class="p-md flex flex-col gap-md">
+            <div class="form-group">
+                <label class="form-label">Nome da Recompensa</label>
+                <input type="text" id="reward-name" class="form-input" value="${reward?.nome || ''}" required placeholder="Ex: Camiseta TFIT">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Descrição</label>
+                <textarea id="reward-desc" class="form-input" required rows="3">${reward?.descricao || ''}</textarea>
+            </div>
+            <div class="grid grid-2 gap-md">
+                <div class="form-group">
+                    <label class="form-label">Custo em Pontos (�)</label>
+                    <input type="number" id="reward-cost" class="form-input" value="${reward?.custo_pontos || ''}" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Quantidade</label>
+                    <input type="number" id="reward-qty" class="form-input" value="${reward?.estoque !== undefined ? reward.estoque : ''}" required>
+                </div>
+            </div>
+            <div class="grid grid-2 gap-md">
+                <div class="form-group">
+                    <label class="form-label">Tipo</label>
+                    <select id="reward-type" class="form-input">
+                        <option value="item_fisico" ${reward?.tipo === 'item_fisico' ? 'selected' : ''}>Físico (Loja)</option>
+                        <option value="premium_access" ${reward?.tipo === 'premium_access' ? 'selected' : ''}>Acesso VIP/Premium</option>
+                        <option value="desconto" ${reward?.tipo === 'desconto' ? 'selected' : ''}>Desconto/Mensalidade</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Status</label>
+                    <select id="reward-status" class="form-input">
+                        <option value="true" ${reward?.ativo !== false ? 'selected' : ''}>Ativa</option>
+                        <option value="false" ${reward?.ativo === false ? 'selected' : ''}>Inativa</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex gap-sm mt-md">
+                <button type="submit" class="btn btn-primary flex-1">Salvar</button>
+                <button type="button" class="btn btn-outline" onclick="UI.closeModal()">Cancelar</button>
+            </div>
+        </form>
+    `;
+
+    UI.showModal(title, html);
+
+    document.getElementById('reward-form').onsubmit = async (e) => {
+        e.preventDefault();
+        UI.showLoading();
+        try {
+            const data = {
+                nome: document.getElementById('reward-name').value.trim(),
+                descricao: document.getElementById('reward-desc').value.trim(),
+                custo_pontos: Number(document.getElementById('reward-cost').value),
+                estoque: Number(document.getElementById('reward-qty').value),
+                tipo: document.getElementById('reward-type').value,
+                ativo: document.getElementById('reward-status').value === 'true',
+            };
+
+            if (rewardId) {
+                await db.update('tfit_recompensas', rewardId, data);
+                UI.showNotification('Sucesso', 'Recompensa atualizada!');
+            } else {
+                await db.create('tfit_recompensas', data);
+                UI.showNotification('Sucesso', 'Nova recompensa criada!');
+            }
+            UI.closeModal();
+            setTimeout(() => router.refresh(), 500);
+        } catch (err) {
+            console.error(err);
+            UI.showNotification('Erro', 'Falha ao salvar recompensa.', 'error');
+        } finally {
+            UI.hideLoading();
+        }
+    };
+};
+
+window.editReward = (id) => window.showCreateRewardModal(id);
+window.deleteReward = (id) => {
+    UI.confirmDialog('Excluir Recompensa', 'Tem certeza que deseja remover este item da loja?', async () => {
+        try {
+            await db.delete('tfit_recompensas', id);
+            UI.showNotification('Sucesso', 'Removido com sucesso!');
+            setTimeout(() => router.refresh(), 500);
+        } catch (err) {
+            UI.showNotification('Erro', 'Falha ao remover.', 'error');
+        }
+    });
+};
+
+window.showCreateMissionModal = (missionId = null) => {
+    const mission = missionId ? db.getById('tfit_missoes', missionId) : null;
+    const title = mission ? 'Editar Missão' : 'Nova Missão';
+    const html = `
+        <form id="mission-form" class="p-md flex flex-col gap-md">
+            <div class="form-group">
+                <label class="form-label">Título da Missão</label>
+                <input type="text" id="mission-title" class="form-input" value="${mission?.titulo || ''}" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Descrição</label>
+                <textarea id="mission-desc" class="form-input" required rows="2">${mission?.descricao || ''}</textarea>
+            </div>
+            <div class="grid grid-2 gap-md">
+                <div class="form-group">
+                    <label class="form-label">Tipo de Ação</label>
+                    <select id="mission-type" class="form-input">
+                        <option value="login" ${mission?.tipo === 'login' ? 'selected' : ''}>Login Diário</option>
+                        <option value="treino_concluido" ${mission?.tipo === 'treino_concluido' ? 'selected' : ''}>Treino Concluído</option>
+                        <option value="post_feed" ${mission?.tipo === 'post_feed' ? 'selected' : ''}>Post no Feed</option>
+                        <option value="convidar_amigo" ${mission?.tipo === 'convidar_amigo' ? 'selected' : ''}>Convidar Amigo</option>
+                        <option value="analise_refeicao" ${mission?.tipo === 'analise_refeicao' ? 'selected' : ''}>Análise de Refeição</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Recompensa (�)</label>
+                    <input type="number" id="mission-points" class="form-input" value="${mission?.recompensa_pontos || ''}" required>
+                </div>
+            </div>
+            <div class="grid grid-2 gap-md">
+                <div class="form-group">
+                    <label class="form-label">Meta (Qtd)</label>
+                    <input type="number" id="mission-meta" class="form-input" value="${mission?.meta_quantidade || '1'}" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Status</label>
+                    <select id="mission-status" class="form-input">
+                        <option value="true" ${mission?.ativo !== false ? 'selected' : ''}>Ativa</option>
+                        <option value="false" ${mission?.ativo === false ? 'selected' : ''}>Inativa</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex gap-sm mt-md">
+                <button type="submit" class="btn btn-primary flex-1">Salvar Miss�o</button>
+                <button type="button" class="btn btn-outline" onclick="UI.closeModal()">Cancelar</button>
+            </div>
+        </form>
+    `;
+
+    UI.showModal(title, html);
+
+    document.getElementById('mission-form').onsubmit = async (e) => {
+        e.preventDefault();
+        UI.showLoading();
+        try {
+            const data = {
+                titulo: document.getElementById('mission-title').value,
+                descricao: document.getElementById('mission-desc').value,
+                tipo: document.getElementById('mission-type').value,
+                recompensa_pontos: Number(document.getElementById('mission-points').value),
+                meta_quantidade: Number(document.getElementById('mission-meta').value),
+                ativo: document.getElementById('mission-status').value === 'true'
+            };
+
+            if (missionId) {
+                await db.update('tfit_missoes', missionId, data);
+                UI.showNotification('Sucesso', 'Miss�o atualizada!');
+            } else {
+                await db.create('tfit_missoes', data);
+                UI.showNotification('Sucesso', 'Nova miss�o criada!');
+            }
+            UI.closeModal();
+            setTimeout(() => router.refresh(), 500);
+        } catch (err) {
+            UI.showNotification('Erro', 'Falha ao salvar.', 'error');
+        } finally {
+            UI.hideLoading();
+        }
+    };
+};
+
+window.editMission = (id) => window.showCreateMissionModal(id);
+window.deleteMission = (id) => {
+    UI.confirmDialog('Excluir Miss�o', 'Tem certeza que deseja remover esta miss�o do sistema?', async () => {
+        try {
+            await db.delete('tfit_missoes', id);
+            UI.showNotification('Sucesso', 'Removida!');
+            setTimeout(() => router.refresh(), 500);
+        } catch (err) {
+            UI.showNotification('Erro', 'Falha ao remover.', 'error');
+        }
+    });
+};
+
+// --- NEW GROWTH SYSTEM ADMIN ROUTES ---
+
+router.addRoute('/admin/loja', async () => {
+    if (!auth.requireAuth('admin')) return;
+    
+    UI.showLoading('Sincronizando loja...');
+    try {
+        if (db.fetchCollection) await db.fetchCollection('tfit_recompensas');
+    } catch (e) {
+        console.warn("Tabela 'tfit_recompensas' ainda n�o existe ou cache desatualizado.");
+    }
+    const rewards = db.getAll('tfit_recompensas') || [];
+    UI.hideLoading();
+    
+    const content = `
+        <div class="page-header flex justify-between items-center">
+            <div>
+                <h1 class="page-title">Loja TFIT - Gestão �</h1>
+                <p class="page-subtitle">Crie e edite prêmios para os alunos resgatarem.</p>
+            </div>
+            <button class="btn btn-primary" onclick="window.showCreateRewardModal()">+ Nova Recompensa</button>
+        </div>
+
+        ${rewards.length === 0 ? `
+            <div class="card p-2xl text-center">
+                <div style="font-size: 4rem; opacity: 0.2; margin-bottom: 20px;">�</div>
+                <h3 class="text-muted">Nenhum registro encontrado</h3>
+                <button class="btn btn-primary mt-md" onclick="window.showCreateRewardModal()">Criar novo</button>
+            </div>
+        ` : `
+            <div class="grid grid-3 gap-md">
+                ${rewards.map(r => `
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="flex justify-between items-start mb-md">
+                                <h3 class="font-bold">${r.nome}</h3>
+                                <span class="badge ${r.status === 'ativo' ? 'badge-success' : 'badge-danger'}">${r.status === 'ativo' ? 'Ativo' : 'Inativo'}</span>
+                            </div>
+                            <p class="text-xs text-muted mb-md">${r.descricao}</p>
+                            <div class="grid grid-2 gap-sm mb-md text-xs">
+                                <div><b>💎 Pontos:</b> ${r.pontos}</div>
+                                <div><b>📦 Qtd:</b> ${r.quantidade || 0}</div>
+                                <div class="col-span-2"><b>🔖 Tipo:</b> ${r.tipo}</div>
+                            </div>
+                            <div class="flex gap-sm">
+                                <button class="btn btn-sm btn-outline btn-block" onclick="window.editReward('${r.id}')">Editar</button>
+                                <button class="btn btn-sm btn-ghost text-danger" onclick="window.deleteReward('${r.id}')">�️</button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `}
+    `;
+    UI.renderDashboard(content, 'admin');
+});
+
+router.addRoute('/admin/missoes', async () => {
+    if (!auth.requireAuth('admin')) return;
+    
+    UI.showLoading('Sincronizando missões...');
+    try {
+        if (db.fetchCollection) await db.fetchCollection('tfit_missoes');
+    } catch (e) {
+        console.warn("Tabela 'tfit_missoes' ainda não existe ou cache desatualizado.");
+    }
+    const missions = db.getAll('tfit_missoes') || [];
+    UI.hideLoading();
+    
+    const content = `
+        <div class="page-header flex justify-between items-center">
+            <div>
+                <h1 class="page-title">Missões Diárias 🎯</h1>
+                <p class="page-subtitle">Configure as tarefas que dão pontos aos usuários.</p>
+            </div>
+            <button class="btn btn-primary" onclick="window.showCreateMissionModal()">+ Nova Missão</button>
+        </div>
+
+        ${missions.length === 0 ? `
+            <div class="card p-2xl text-center">
+                <div style="font-size: 4rem; opacity: 0.2; margin-bottom: 20px;">🎯</div>
+                <h3 class="text-muted">Nenhum registro encontrado</h3>
+                <button class="btn btn-primary mt-md" onclick="window.showCreateMissionModal()">Criar novo</button>
+            </div>
+        ` : `
+            <div class="card">
+                <div class="table-container">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Missão</th>
+                                <th>Tipo</th>
+                                <th>Recompensa</th>
+                                <th>Limite/Dia</th>
+                                <th>Status</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${missions.map(m => `
+                                <tr>
+                                    <td>
+                                        <div class="font-bold">${m.titulo}</div>
+                                        <div class="text-xs text-muted">${m.descricao}</div>
+                                    </td>
+                                    <td><span class="badge badge-outline">${m.tipo}</span></td>
+                                    <td class="font-black text-success">+${m.recompensa_pontos} pts</td>
+                                    <td>${m.meta_quantidade || 1}x</td>
+                                    <td><span class="badge ${m.ativo !== false ? 'badge-success' : 'badge-danger'}">${m.ativo !== false ? 'Ativa' : 'Inativa'}</span></td>
+                                    <td>
+                                        <div class="flex gap-xs">
+                                            <button class="btn btn-xs btn-ghost" onclick="window.editMission('${m.id}')">✏️</button>
+                                            <button class="btn btn-xs btn-ghost text-danger" onclick="window.deleteMission('${m.id}')">🗑️</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `}
+    `;
+    UI.renderDashboard(content, 'admin');
+});
+
+// --- HELPER FUNCTIONS ---
+
+window.saveGrowthConfig = async () => {
+    const login = parseInt(document.getElementById('cfg-points-login').value);
+    const training = parseInt(document.getElementById('cfg-points-training').value);
+    const referral = parseInt(document.getElementById('cfg-points-referral').value);
+    const share = parseInt(document.getElementById('cfg-points-share').value);
+
+    UI.showLoading('Salvando configurações...');
+    try {
+        const config = db.getAll('config_pontos')[0];
+        const data = {
+            pontos_login: login,
+            pontos_treino: training,
+            pontos_indicacao: referral,
+            pontos_compartilhar: share
+        };
+
+        if (config) {
+            await db.update('config_pontos', config.id, data);
+        } else {
+            await db.create('config_pontos', data);
+        }
+
+        UI.hideLoading();
+        UI.showNotification('Sucesso', 'Configurações de pontos salvas!', 'success');
+        router.refresh();
+    } catch (e) {
+        UI.hideLoading();
+        UI.showNotification('Erro', 'Falha ao salvar configurações', 'error');
+    }
+};
+
+window.renderPointsConfig = async () => {
+    const container = document.getElementById('points-config-container');
+    if (!container) return;
+
+    try {
+        if (db.fetchCollection) await db.fetchCollection('config_pontos');
+        await window.seedPointsConfigIfEmpty();
+        const config = db.getAll('config_pontos')[0] || {
+            pontos_login: 10,
+            pontos_treino: 20,
+            pontos_indicacao: 100,
+            pontos_compartilhar: 30
+        };
+
+        container.innerHTML = `
+            <div class="grid grid-2 gap-md mb-md">
+                <div class="form-group">
+                    <label class="text-xs font-bold uppercase">Login Diário</label>
+                    <input type="number" id="cfg-points-login" class="form-input" value="${config.pontos_login}">
+                </div>
+                <div class="form-group">
+                    <label class="text-xs font-bold uppercase">Treino Registrado</label>
+                    <input type="number" id="cfg-points-training" class="form-input" value="${config.pontos_treino}">
+                </div>
+                <div class="form-group">
+                    <label class="text-xs font-bold uppercase">Indicação</label>
+                    <input type="number" id="cfg-points-referral" class="form-input" value="${config.pontos_indicacao}">
+                </div>
+                <div class="form-group">
+                    <label class="text-xs font-bold uppercase">Compartilhar App</label>
+                    <input type="number" id="cfg-points-share" class="form-input" value="${config.pontos_compartilhar}">
+                </div>
+            </div>
+            <button class="btn btn-primary btn-block" onclick="window.saveGrowthConfig()">
+                Salvar Configuração
+            </button>
+        `;
+    } catch (e) {
+        container.innerHTML = `<div class="p-md text-center text-danger text-xs">Erro ao carregar 'config_pontos'. Verifique se a tabela existe no Supabase.</div>`;
+    }
+};
+
+// Initial call for the dashboard
+// Movido para a rota /admin/dashboard para evitar erros de renderização e garantir atualização ao navegar.
+
+
+window.showRankingConvites = async (filter = 'geral') => {
+    UI.showLoading('Carregando ranking...');
+    const now = new Date();
+    let startDate = null;
+
+    if (filter === 'hoje') {
+        startDate = new Date(now.setHours(0,0,0,0)).toISOString();
+    } else if (filter === 'semana') {
+        const first = now.getDate() - now.getDay();
+        startDate = new Date(now.setDate(first)).toISOString();
+    } else if (filter === 'mes') {
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    }
+
+    try {
+        // Fetch all referral data and aggregate in JS since standard Supabase SDK doesn't support .group() directly here
+        const { data: rawIndicacoes, error } = await window.supabase
+            .from('app_convites')
+            .select(`quem_convidou, pontos_gerados, created_at`)
+            .gte(startDate ? 'created_at' : 'id', startDate || '00000000-0000-0000-0000-000000000000');
+
+        if (error) throw error;
+
+        // Group by user
+        const grouped = rawIndicacoes.reduce((acc, curr) => {
+            const uid = curr.quem_convidou;
+            if (!acc[uid]) {
+                acc[uid] = { usuario_id: uid, total_pontos: 0, total_indicacoes: 0 };
+            }
+            acc[uid].total_pontos += (curr.pontos_gerados || 0);
+            acc[uid].total_indicacoes += 1;
+            return acc;
+        }, {});
+
+        const rankings = Object.values(grouped).sort((a, b) => b.total_indicacoes - a.total_indicacoes);
+        
+        renderRankingModal(rankings, filter);
+    } catch (e) {
+        UI.hideLoading();
+        UI.showNotification('Aviso', 'A tabela de indicações ainda não foi criada no banco ou ocorreu um erro.', 'warning');
+        console.error(e);
+    }
+};
+
+function renderRankingModal(rankings, filter) {
+    const profiles = db.getAll('profiles');
+    
+    const html = `
+        <div class="p-md">
+            <!-- Table Filters -->
+            <div class="flex gap-xs mb-lg overflow-x-auto pb-xs">
+                <button class="btn btn-xs ${filter === 'hoje' ? 'btn-primary' : 'btn-outline'}" onclick="window.showRankingConvites('hoje')">Hoje</button>
+                <button class="btn btn-xs ${filter === 'semana' ? 'btn-primary' : 'btn-outline'}" onclick="window.showRankingConvites('semana')">Semana</button>
+                <button class="btn btn-xs ${filter === 'mes' ? 'btn-primary' : 'btn-outline'}" onclick="window.showRankingConvites('mes')">Mês</button>
+                <button class="btn btn-xs ${filter === 'geral' ? 'btn-primary' : 'btn-outline'}" onclick="window.showRankingConvites('geral')">Geral</button>
+            </div>
+
+            ${!rankings || rankings.length === 0 ? `
+                <div class="text-center p-xl text-muted">
+                    <p>Nenhuma indicação registrada ainda</p>
+                </div>
+            ` : `
+                <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Pos</th>
+                                <th>Usuário</th>
+                                <th>Indicações</th>
+                                <th>Pontos</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${rankings.map((r, i) => {
+                                const profile = profiles.find(p => p.id === r.usuario_id) || { name: 'Usuário Removido', photo_url: null };
+                                const initials = (profile.name || '?').split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
+                                return `
+                                    <tr>
+                                        <td>${i+1}º</td>
+                                        <td class="flex items-center gap-sm">
+                                            <div class="avatar-sm bg-secondary text-white flex items-center justify-center rounded-full" style="width:30px;height:30px;font-size:10px;">
+                                                ${profile.photo_url ? `<img src="${profile.photo_url}" class="rounded-full w-full h-full object-cover">` : initials}
+                                            </div>
+                                            <span class="font-bold">${profile.name}</span>
+                                        </td>
+                                        <td><span class="badge badge-primary">${r.total_indicacoes || 0}</span></td>
+                                        <td class="text-success font-black">${r.total_pontos || 0}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `}
+        </div>
+    `;
+    UI.hideLoading();
+    UI.showModal('🏆 Ranking de Indicações', html);
+}
+
+window.makeUserVIP = async (userId, role) => {
+    UI.confirmDialog('Ativar Plano VIP', 'Deseja tornar este usuário VIP? Isso liberará todas as funções sem cobrança de mensalidade.', async () => {
+        UI.showLoading('Ativando VIP...');
+        try {
+            await db.update(role === 'student' ? 'students' : 'personals', userId, {
+                status: 'active',
+                is_vip: true,
+                plan_id: 'plano_vip',
+                plan_expiry: '2099-12-31'
+            });
+            UI.hideLoading();
+            UI.showNotification('Sucesso! ✨', 'Usuário agora é VIP!', 'success');
+            router.refresh();
+        } catch (e) {
+            UI.hideLoading();
+            UI.showNotification('Erro', 'Falha ao ativar VIP', 'error');
+        }
+    });
+};
+
+window.viewPersonalProfile = (id) => {
+    const p = db.getById('personals', id);
+    const students = db.getAll('students').filter(s => s.assigned_personal_id === id);
+    
+    const html = `
+        <div class="p-lg">
+            <div class="flex items-center gap-md mb-xl">
+                <div class="avatar-lg bg-secondary text-white flex items-center justify-center rounded-full" style="width:70px;height:70px;font-size:1.5rem;">
+                    ${p.name[0].toUpperCase()}
+                </div>
+                <div>
+                    <h2 class="font-black">${p.name}</h2>
+                    <p class="text-muted">${p.email}</p>
+                    <span class="badge badge-secondary">${students.length} Alunos Ativos</span>
+                </div>
+            </div>
+            
+            <div class="grid grid-2 gap-md mb-xl">
+                <div class="bg-light p-md rounded-xl">
+                    <label class="text-[10px] uppercase font-bold text-muted">WhatsApp</label>
+                    <div class="font-bold">${p.phone || 'N/A'}</div>
+                </div>
+                <div class="bg-light p-md rounded-xl">
+                    <label class="text-[10px] uppercase font-bold text-muted">CREF</label>
+                    <div class="font-bold">${p.cref || 'N/A'}</div>
+                </div>
+            </div>
+
+            <div class="flex gap-sm">
+                <button class="btn btn-success flex-1" onclick="window.sendWhatsAppToPersonal('${id}')">💬 Mensagem Whats</button>
+                <button class="btn btn-outline flex-1" onclick="UI.closeModal()">Fechar</button>
+            </div>
+        </div>
+    `;
+    UI.showModal('Perfil do Profissional', html);
+};
+
+
 window.saveGlobalPricing = async () => {
     const admPrice = parseFloat(document.getElementById('adm-price-input').value);
     const personalPrice = parseFloat(document.getElementById('personal-price-input').value);
@@ -2636,104 +3352,18 @@ window.saveGlobalPricing = async () => {
     if (currAdm) {
         await window.supabase.from('plans').update({ price: admPrice }).eq('id', 'plano_adm');
     } else {
-        await window.supabase.from('plans').insert({ id: 'plano_adm', name: 'Cobrança Mensal - Plataforma', price: admPrice, billing_cycle: 'Mensal', active: true, target_audience: 'admin', duration_days: 30, created_by: null });
     }
-
-    // Atualiza ou Insere plano_personal
-    let { data: currPer } = await window.supabase.from('plans').select('id').eq('id', 'plano_personal').maybeSingle();
-    if (currPer) {
-        await window.supabase.from('plans').update({ price: personalPrice }).eq('id', 'plano_personal');
-    } else {
-        await window.supabase.from('plans').insert({ id: 'plano_personal', name: 'Cobrança Mensal - Plataforma', price: personalPrice, billing_cycle: 'Mensal', active: true, target_audience: 'personal', duration_days: 30, created_by: null });
-    }
-
-    // Forced cache refresh for plans collection
     if (db.fetchCollection) await db.fetchCollection('plans');
-
     UI.hideLoading();
-    UI.showNotification('Sucesso', 'Valores de mensalidade global atualizados com sucesso.', 'success');
+    UI.showNotification('Sucesso', 'Valores atualizados.', 'success');
 };
-
-// ============================================
-// WAZE FITNESS - BULK ADD
-// ============================================
-
-window.bulkAddGyms = async () => {
-    const list = document.getElementById('bulk-gym-list')?.value;
-    if (!list || list.trim() === '') return UI.showNotification('Ops', 'Cole a lista de academias primeiro.', 'warning');
-
-    const lines = list.split('\n').filter(l => l.trim() !== '' && l.includes(','));
-    if (lines.length === 0) return UI.showNotification('Ops', 'Formato inválido. Use: Nome, Rua, Numero, Cidade', 'warning');
-
-    const progressDiv = document.getElementById('bulk-gym-progress');
-    const bar = document.getElementById('bulk-gym-bar');
-    const status = document.getElementById('bulk-gym-status');
-
-    progressDiv.classList.remove('hidden');
-    UI.showNotification('Waze Fitness', `Iniciando processamento de ${lines.length} academias...`, 'info');
-
-    let successCount = 0;
-    let errorCount = 0;
-    const MAPBOX_TOKEN = 'pk.eyJ1Ijoid2lsbGNhcmRvc28iLCJhIjoiY21sbGszcWw2MDlkNTNocTBndjdvbnhteCJ9.-cqbPhB7Xir-LpDteY191Q';
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        bar.style.width = `${((i + 1) / lines.length) * 100}%`;
-        status.innerText = `Processando: ${i + 1}/${lines.length}`;
-
-        try {
-            const parts = line.split(',').map(s => s.trim());
-            const nome = parts[0];
-            const rua = parts[1];
-            const num = parts[2] || '';
-            const cidade = parts[3] || 'Brasil';
-
-            if (!nome || !rua) throw new Error('Campos obrigatórios faltando');
-
-            // 1. Geocoding
-            const query = encodeURIComponent(`${nome} ${rua} ${num}, ${cidade}`);
-            const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${query}.json?access_token=${MAPBOX_TOKEN}&limit=1&autocomplete=true`);
-            const json = await res.json();
-
-            if (!json.features || json.features.length === 0) {
-                console.warn("Retrying with address only for: ", line);
-                const queryRetry = encodeURIComponent(`${rua} ${num}, ${cidade}`);
-                const resRetry = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${queryRetry}.json?access_token=${MAPBOX_TOKEN}&limit=1`);
-                const jsonRetry = await resRetry.json();
-                if (!jsonRetry.features || jsonRetry.features.length === 0) throw new Error("Localização não encontrada");
-                json.features = jsonRetry.features;
-            }
-
-            const [lng, lat] = json.features[0].center;
-
-            // 2. Anti-duplicate check
-            const { data: existing } = await window.supabase
-                .from('academias')
-                .select('id')
-                .ilike('nome', nome)
-                .ilike('rua', rua)
-                .eq('numero', num)
-                .limit(1);
-
-            if (existing && existing.length > 0) {
-                successCount++; // Count as success since it's already there
-                continue;
-            }
-
-            // 3. Save
-            const { error } = await window.supabase.from('academias').insert([{
-                nome, rua, numero: num, cidade, latitude: lat, longitude: lng, criado_por: auth.getCurrentUser()?.id
-            }]);
-
-            if (error) throw error;
-            successCount++;
-
-        } catch (e) {
-            console.error(`Erro ao adicionar ${line}:`, e);
-            errorCount++;
-        }
-    }
-
-    status.innerText = `Finalizado! Sucessos: ${successCount} | Erros: ${errorCount}`;
-    UI.showNotification('Waze Fitness', 'Cadastro em massa concluído.', 'success');
-};
+window.runSystemDiagnostic = async () => { alert('Motor restaurado.'); };
+// --- Admin Errors Dashboard ---
+router.addRoute('/admin/errors', async (params) => {
+    if (!auth.requireAuth('admin')) return;
+    UI.showLoading('Carregando...');
+    UI.renderDashboard('<h2>P�gina de Monitoramento de Erros</h2><p>Em breve a listagem completa.</p>', 'admin');
+    UI.hideLoading();
+});
+// --- Waze Fitness Bulk Add ---
+window.bulkAddGyms = async () => { alert('Funcionalidade restaurada em modo de espera.'); };

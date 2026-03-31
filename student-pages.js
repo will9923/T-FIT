@@ -101,22 +101,27 @@ const getExerciseVideoHTML = (exerciseName, autoplay = false) => {
 
     const targetName = clean(exerciseName);
 
-    // Match Strategy
-    let match = videos.find(v => clean(v.exerciseName) === targetName);
+    // Match Strategy (CamelCase or snake_case)
+    let match = videos.find(v => clean(v.exerciseName || v.exercise_name) === targetName);
     if (!match) {
         match = videos.find(v => {
-            const mapped = clean(v.exerciseName);
+            const mapped = clean(v.exerciseName || v.exercise_name);
             return mapped.length > 3 && (targetName.includes(mapped) || mapped.includes(targetName));
         });
     }
 
     if (match) {
-        // Handle migration states where mediaUrl/mediaType might not exist yet but youtubeUrl might
         const mediaUrl = match.media_url || match.mediaUrl || match.youtubeUrl || match.youtube_url;
-        const mediaType = match.media_type || match.mediaType || ((match.youtubeUrl || match.youtube_url) ? 'youtube' : null);
+        let mediaType = match.media_type || match.mediaType;
+
+        // Auto-detect type if missing (fallback for manual DB entries)
+        if (!mediaType && mediaUrl) {
+            if (mediaUrl.toLowerCase().includes('.gif')) mediaType = 'gif';
+            else if (mediaUrl.toLowerCase().includes('.mp4') || mediaUrl.toLowerCase().includes('.webm')) mediaType = 'video';
+            else if (mediaUrl.includes('youtube') || mediaUrl.includes('youtu.be')) mediaType = 'youtube';
+        }
 
         if (!mediaUrl || mediaUrl.trim() === '') return '';
-
         const url = mediaUrl.trim();
 
         if (mediaType === 'youtube') {
@@ -375,9 +380,15 @@ router.addRoute('/student/payments', () => {
 
                         <!-- Pix / Card Action Buttons (Direct Pay for the internal monthly cycle) -->
                         <div class="flex flex-col gap-sm">
-                            <button class="btn btn-primary btn-block btn-sm mb-xs" onclick="window.startCheckout('${plan.price}', '${plan.name}', '${plan.id}', null, 'mensalidade_tfit')">
-                                💰 Renovar via Pix ou Cartão
-                            </button>
+                            ${plan ? `
+                                <button class="btn btn-primary btn-block btn-sm mb-xs" onclick="window.startCheckout('${plan.price}', '${plan.name}', '${plan.id}', null, 'mensalidade_tfit')">
+                                    💳 Renovar agora
+                                </button>
+                            ` : `
+                                <button class="btn btn-secondary btn-block btn-sm mb-xs" onclick="router.navigate('/payment/plans')">
+                                    🔍 Ver Planos
+                                </button>
+                            `}
                             ${(sub.mp_subscription_id && !isCancelled) ? `
                                 <button class="btn btn-ghost btn-block btn-xs text-danger" onclick="window.cancelSubscription('${sub.mp_subscription_id}', '${plan.created_by || ''}')">
                                     ❌ Cancelar Assinatura
@@ -838,13 +849,22 @@ router.addRoute('/student/dashboard', async () => {
         // Fetch data and ensure uniqueness
         const allWorkouts = db.query('workouts', w => w.student_id === currentUser.id);
         const workouts = allWorkouts.filter((v, i, a) => a.findIndex(t => (t.id === v.id)) === i);
+        
+        // Separação de treinos: IA vs Personal (conforme item 4 do objetivo)
+        const aiWorkouts = workouts.filter(w => w.personal_name === 'T-FIT AI' || w.personal_name === 'SISTEMA' || !w.personal_name);
+        const personalWorkouts = workouts.filter(w => w.personal_name !== 'T-FIT AI' && w.personal_name !== 'SISTEMA' && w.personal_name);
+
         const diets = db.query('diets', d => d.student_id === currentUser.id);
         const personalDiet = diets.find(d => d.personal_name !== 'T-FIT AI' && d.personal_name !== 'SISTEMA');
-        const personalWorkout = workouts.find(w => w.personal_name !== 'T-FIT AI' && w.personal_name !== 'SISTEMA');
+        const personalWorkout = personalWorkouts[0];
         const aiDiet = diets.find(d => d.personal_name === 'T-FIT AI' || d.personal_name === 'SISTEMA');
         const completions = db.query('workout_completions', c => c.student_id === currentUser.id);
         const nextWorkout = getNextWorkout(currentUser, workouts);
         const heroWorkout = nextWorkout || workouts[0];
+
+        // Use the permissions already determined
+        const hasAI_final = hasAI;
+        const hasPersonal_final = hasPersonal;
 
         // Calculate stats
         const today = new Date().toDateString();
@@ -852,19 +872,45 @@ router.addRoute('/student/dashboard', async () => {
 
 
         let content = `
-        <!-- Trial Active Banner -->
+        <!-- Error Reporting Banner -->
+        ${typeof UI.getErrorBannerHTML === 'function' ? UI.getErrorBannerHTML() : ''}
+
+        <!-- Trial Banner / Activation Card -->
         ${(() => {
+                if (accessCheck.status === 'blocked' && !currentUser.trial_used && !currentUser.trial_started_at) {
+                    return `
+                    <div class="card mb-xl shadow-glow" style="background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%); color: white; border: none; border-radius: 20px;">
+                        <div class="card-body text-center p-xl">
+                            <h2 style="font-size: 1.5rem; font-weight: 800; margin-bottom: 10px;">Período de Experiência 🎁</h2>
+                            <p style="opacity: 0.9; margin-bottom: 20px; font-size: 0.95rem;">
+                                Você ainda não ativou seu teste grátis! Deseja ativar agora <b>3 DIAS</b> de acesso TOTAL a todas as funções com IA?
+                            </p>
+                            <button class="btn btn-primary shadow-glow py-md" style="background: white; color: #4f46e5; border: none; font-weight: 800; width: 100%; font-size: 1.1rem; border-radius: 12px; margin-bottom: 10px;" onclick="window.PaymentHelper.activateTrial('${currentUser.id}')">
+                                🚀 Ativar 3 Dias Grátis
+                            </button>
+                            <button class="btn btn-ghost py-md" style="color: rgba(255,255,255,0.7); font-size: 0.9rem;" onclick="this.parentElement.parentElement.style.display='none'">
+                                Agora não
+                            </button>
+                        </div>
+                    </div>
+                    `;
+                }
                 if (accessCheck.status === 'trial') {
                     const trial = PaymentHelper.getTrialStatus(currentUser);
+                    const isLastDay = trial.daysLeft <= 1;
                     return `
-                    <div class="card mb-xl" style="background: rgba(99, 102, 241, 0.1); border: 2px solid var(--primary);">
-                        <div class="card-body flex justify-between items-center">
+                    <div class="card mb-xl" style="background: ${isLastDay ? 'rgba(239, 68, 68, 0.1)' : 'rgba(99, 102, 241, 0.1)'}; border: 2px solid ${isLastDay ? '#ef4444' : 'var(--primary)'}; border-radius: 20px;">
+                        <div class="card-body flex justify-between items-center p-lg">
                             <div>
-                                <h3 class="text-primary mb-xs">🎁 Teste Grátis Ativo</h3>
-                                <p class="mb-0 text-muted">Você tem <b>${trial.daysLeft} dias</b> de acesso total à T-FIT IA.</p>
+                                <h3 style="color: ${isLastDay ? '#ef4444' : 'var(--primary)'}; font-size: 1.1rem; font-weight: 800; margin-bottom: 4px;">
+                                    ${isLastDay ? '⚠️ Último Dia de Teste!' : '🎁 Teste Grátis Ativo'}
+                                </h3>
+                                <p class="mb-0 text-muted" style="font-size: 0.9rem;">
+                                    Falta${trial.daysLeft === 1 ? '' : 'm'} <b>${trial.daysLeft} dia${trial.daysLeft === 1 ? '' : 's'}</b> para o bloqueio.
+                                </p>
                             </div>
-                            <button class="btn btn-primary" onclick="window.activateAIPlan()">
-                                Assinar Definitivo
+                            <button class="btn btn-primary" style="background: ${isLastDay ? '#ef4444' : 'var(--primary)'}; border: none;" onclick="router.navigate('/payment/plans?filter=ai')">
+                                Assinar Agora
                             </button>
                         </div>
                     </div>
@@ -874,107 +920,7 @@ router.addRoute('/student/dashboard', async () => {
             })()}
 
 
-        <!-- Payment Warning/Block Alert -->
-        <!-- Hiring Approval Pending -->
-        ${currentUser.status === 'pending_approval' ? `
-            <div class="card mb-xl shadow-glow" style="border-left: 5px solid var(--primary); background: rgba(99, 102, 241, 0.05);">
-                <div class="card-body">
-                    <div class="flex items-center gap-md mb-md">
-                        <div style="font-size: 2.5rem;">⏳</div>
-                        <div>
-                            <h3 style="color: var(--primary); margin: 0;">Aguardando Aprovação</h3>
-                            <p class="text-sm text-muted mb-0">Seu pedido foi enviado para <b>${currentUser.personal_name}</b>.</p>
-                        </div>
-                    </div>
-                    <div class="p-md bg-white rounded-lg border-shadow text-center">
-                        <p class="text-sm mb-md">Assim que o personal aprovar seu pedido, você receberá uma notificação e o botão de pagamento aparecerá aqui.</p>
-                        <button class="btn btn-outline btn-sm btn-block" onclick="window.cancelHiringRequest()">
-                            Cancelar Solicitação
-                        </button>
-                    </div>
-                </div>
-            </div>
-        ` : ''}
-
-        <!-- Payment Pending (After Approval) -->
-        ${currentUser.status === 'pending_payment' ? `
-            <div class="card mb-xl shadow-glow" style="border-left: 5px solid var(--success); background: rgba(16, 185, 129, 0.05);">
-                <div class="card-body">
-                    <div class="flex items-center gap-md mb-md">
-                        <div style="font-size: 2.5rem;">✅</div>
-                        <div>
-                            <h3 style="color: var(--success); margin: 0;">Pedido Aprovado!</h3>
-                            <p class="text-sm text-muted mb-0">Contratação autorizada por <b>${currentUser.personal_name}</b>.</p>
-                        </div>
-                    </div>
-                    <div class="p-md bg-white rounded-lg border-shadow text-center">
-                        <p class="text-sm mb-lg">Complete sua contratação realizando o pagamento agora.</p>
-                        <button class="btn btn-primary btn-block shadow-lg" onclick="window.payPersonalPlan('${currentUser.plan_id}')">
-                            💳 Realizar Pagamento Agora
-                        </button>
-                        <button class="btn btn-ghost btn-xs mt-md" onclick="window.cancelHiringRequest()">
-                            Alterar Plano ou Personal
-                        </button>
-                    </div>
-                </div>
-            </div>
-        ` : ''}
-
-        ${currentUser.waitingApproval ? `
-            <div class="card mb-xl shadow-alert" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.05) 100%); border: 1px solid var(--warning); border-radius: 20px;">
-                <div class="card-body flex items-center gap-md">
-                    <div style="font-size: 2.2rem;">⏳</div>
-                    <div class="flex-1">
-                        <div class="font-bold text-warning" style="font-size: 1rem;">Pagamento em Análise</div>
-                        <p class="text-sm mb-0 text-muted">Recebemos seu comprovante! Nosso time está validando seu acesso. Enquanto isso, você já pode usar a plataforma! 💪</p>
-                    </div>
-                </div>
-            </div>
-        ` : ''}
-
-        ${(accessCheck.status === 'blocked' && !currentUser.trial_used && !currentUser.trial_started_at) ? `
-            <div class="card mb-xl shadow-glow" style="background: linear-gradient(135deg, var(--bg-card) 0%, rgba(99, 102, 241, 0.05) 100%); border: 2px dashed var(--primary); border-radius: 24px;">
-                <div class="card-body text-center p-xl">
-                    <div style="font-size: 4rem; margin-bottom: 1.5rem;">🎁</div>
-                    <h2 class="text-primary mb-md">Libere 3 Dias Grátis agora!</h2>
-                    <p class="text-muted mb-xl" style="font-size: 1.1rem;">Não fique sem treinar. Ative agora seu período de experiência com <b>acesso total</b> a todas as funções IA, Dieta e Treinos.</p>
-                    <button class="btn btn-primary btn-block py-md shadow-glow" style="font-size: 1.1rem; font-weight: 800;" onclick="window.PaymentHelper.activateTrial('${currentUser.id}', () => router.navigate('/student/dashboard'))">
-                        🚀 ATIVAR TESTE GRÁTIS (3 DIAS)
-                    </button>
-                </div>
-            </div>
-        ` : ''}
-
-        ${accessCheck.status === 'blocked' ? `
-            <div class="card mb-xl" style="border-left: 5px solid var(--danger); background: rgba(255, 99, 132, 0.05);">
-                <div class="card-body text-center">
-                    <div style="font-size: 3rem; margin-bottom: 1rem;">🚫</div>
-                    <h2 class="text-danger mb-md">Acesso Bloqueado</h2>
-                    <p class="mb-lg">Seu pagamento está pendente há <strong>${accessCheck.daysOverdue} dias</strong>.</p>
-                    <p class="text-muted mb-xl">Entre em contato com seu personal para regularizar sua situação e recuperar o acesso completo.</p>
-                    ${currentUser.assigned_personal_id ? `
-                        <button class="btn btn-danger" onclick="contactMyPersonal()">
-                            📱 Falar com meu Personal
-                        </button>
-                    ` : ''}
-                </div>
-            </div>
-        ` : accessCheck.warning ? `
-            <div class="card mb-xl" style="border-left: 5px solid var(--warning); background: rgba(255, 206, 86, 0.05);">
-                <div class="card-body flex items-center gap-md">
-                    <div style="font-size: 2.5rem;">⚠️</div>
-                    <div class="flex-1">
-                        <h4 class="text-warning mb-xs">Atenção: Pagamento Vencido</h4>
-                        <p class="mb-0">Seu pagamento venceu há ${accessCheck.daysOverdue} dia(s). Você será bloqueado em ${3 - accessCheck.daysOverdue} dia(s).</p>
-                    </div>
-                    ${currentUser.assigned_personal_id ? `
-                        <button class="btn btn-warning" onclick="contactMyPersonal()">
-                            📱 Contatar Personal
-                        </button>
-                    ` : ''}
-                </div>
-            </div>
-        ` : ''}
+        <!-- Removed personal trainer pending/payment blocks -->
 
         <!-- 1. ATIVIDADE DIÁRIA (Daily Activity Tracker) -->
         <div class="activity-tracker-card mb-xl shadow-glow">
@@ -1160,61 +1106,75 @@ router.addRoute('/student/dashboard', async () => {
                 </div>
             </div>
 
-            <!-- 3. OUTROS TREINOS (Carousel) -->
-            ${workouts.length > 1 ? `
+
+
+            <!-- Estilos Compartilhados de Carrossel -->
+            <style>
+                .workout-carousel {
+                    display: flex;
+                    gap: 1rem;
+                    overflow-x: auto;
+                    padding-bottom: 10px;
+                    scroll-snap-type: x mandatory;
+                    -webkit-overflow-scrolling: touch;
+                }
+                .workout-carousel::-webkit-scrollbar { display: none; }
+                .workout-slide {
+                    min-width: 240px;
+                    background: var(--bg-card);
+                    border-radius: 20px;
+                    padding: 1.25rem;
+                    border: 1px solid var(--border);
+                    scroll-snap-align: start;
+                    display: flex;
+                    flex-direction: column;
+                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+                }
+                .workout-slide-label {
+                    font-size: 0.6rem;
+                    font-weight: 800;
+                    text-transform: uppercase;
+                    color: var(--primary-light);
+                    margin-bottom: 0.5rem;
+                }
+                .workout-slide h3 {
+                    font-size: 1.1rem;
+                    margin-bottom: 0.5rem;
+                    font-weight: 700;
+                }
+                .workout-slide-meta {
+                    display: flex;
+                    gap: 10px;
+                    font-size: 0.75rem;
+                    color: var(--text-muted);
+                    margin-bottom: 1.25rem;
+                }
+                .workout-slide-btn {
+                    padding: 8px;
+                    border-radius: 10px;
+                    font-size: 0.75rem;
+                    font-weight: 700;
+                    border: none;
+                    cursor: pointer;
+                    transition: 0.2s;
+                }
+                .workout-slide-btn.primary { background: var(--primary); color: white; }
+                .workout-slide-btn.outline { background: transparent; border: 1px solid var(--border); color: var(--text-primary); }
+            </style>
+
+            <!-- 3. TREINOS DA IA (Carousel) -->
+            ${aiWorkouts.length > 0 ? `
                 <div class="mb-xl">
                     <div class="flex justify-between items-center mb-md px-1">
-                        <h3 class="mb-0" style="font-size: 1.25rem;">Outros Treinos</h3>
+                        <h3 class="mb-0" style="font-size: 1.25rem;">TREINO DA IA</h3>
                         <span class="text-xs text-muted" style="background: rgba(255,255,255,0.05); padding: 4px 10px; border-radius: 20px;">Deslize 👉</span>
                     </div>
-                    <div class="workout-carousel" style="display: flex; gap: 1rem; overflow-x: auto; padding-bottom: 10px; scroll-snap-type: x mandatory;">
-                        <style>
-                            .workout-slide {
-                                min-width: 240px;
-                                background: var(--bg-card);
-                                border-radius: 20px;
-                                padding: 1.25rem;
-                                border: 1px solid var(--border);
-                                scroll-snap-align: start;
-                                display: flex;
-                                flex-direction: column;
-                            }
-                            .workout-slide-label {
-                                font-size: 0.6rem;
-                                font-weight: 800;
-                                text-transform: uppercase;
-                                color: var(--primary-light);
-                                margin-bottom: 0.5rem;
-                            }
-                            .workout-slide h3 {
-                                font-size: 1.1rem;
-                                margin-bottom: 0.5rem;
-                            }
-                            .workout-slide-meta {
-                                display: flex;
-                                gap: 10px;
-                                font-size: 0.75rem;
-                                color: var(--text-muted);
-                                margin-bottom: 1.25rem;
-                            }
-                            .workout-slide-btn {
-                                padding: 8px;
-                                border-radius: 10px;
-                                font-size: 0.75rem;
-                                font-weight: 700;
-                                border: none;
-                                cursor: pointer;
-                                transition: 0.2s;
-                            }
-                            .workout-slide-btn.primary { background: var(--primary); color: white; }
-                            .workout-slide-btn.outline { background: transparent; border: 1px solid var(--border); color: var(--text-primary); }
-                        </style>
-                        ${(() => {
-                        const otherWorkouts = workouts.filter(w => w.id !== heroWorkout.id);
-                        return otherWorkouts.map(w => `
+                    <div class="workout-carousel">
+
+                        ${aiWorkouts.map(w => `
                                     <div class="workout-slide">
-                                        <div class="workout-slide-label">${w.type || 'Geral'}</div>
-                                        <h3>${w.name || 'Treino'}</h3>
+                                        <div class="workout-slide-label">INTELIGÊNCIA ARTIFICIAL 🤖</div>
+                                        <h3>${w.name || 'Treino IA'}</h3>
                                         <div class="workout-slide-meta">
                                             <span>⏱️ ${w.duration || 0} min</span>
                                             <span>🔥 ${(w.exercises || []).length} ex.</span>
@@ -1228,112 +1188,15 @@ router.addRoute('/student/dashboard', async () => {
                                             </button>
                                         </div>
                                     </div>
-                                `).join('');
-                    })()}
+                                `).join('')}
                     </div>
                 </div>
             ` : ''}
+
+
         ` : ''}
 
-        <!-- 3.5. DIETAS E TREINOS -->
-        <div class="mb-xl">
-            <div class="flex justify-between items-center mb-md px-1">
-                <h3 class="mb-0" style="font-size: 1.25rem;">Dietas e Treinos 🥗🏋️‍♂️</h3>
-            </div>
-            
-            <div class="grid grid-2 gap-sm">
-                <!-- Treino do Personal -->
-                <div class="card shadow-md relative overflow-hidden text-left cursor-pointer" style="border-radius: 20px; border: 1px solid var(--border);" onclick="router.navigate('/student/workouts')">
-                    ${personalWorkout ? `
-                        <div class="badge badge-success" style="position: absolute; top: 10px; right: 10px; font-size: 0.6rem;">ATIVO</div>
-                        <div class="p-md flex flex-col justify-between h-full">
-                            <div>
-                                <div style="font-size: 2.2rem; margin-bottom: 0.2rem;">💪</div>
-                                <h4 class="mb-xs" style="font-size: 1.1rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Personal Treino</h4>
-                                <p class="text-xs text-muted mb-0" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">De ${personalWorkout.personal_name || 'Personal'}</p>
-                            </div>
-                            <div class="text-xs mt-sm font-bold" style="color: var(--primary);">Ver Treinos →</div>
-                        </div>
-                    ` : `
-                        <div class="badge" style="position: absolute; top: 10px; right: 10px; font-size: 0.6rem; background: rgba(0,0,0,0.1); color: var(--text-muted);">VAZIO</div>
-                        <div class="p-md flex flex-col justify-between h-full">
-                            <div>
-                                <div style="font-size: 2.2rem; margin-bottom: 0.2rem; filter: grayscale(1); opacity: 0.5;">💪</div>
-                                <h4 class="mb-xs" style="font-size: 1.1rem; font-weight: 800; color: var(--text-muted);">Personal Treino</h4>
-                                <p class="text-xs text-muted mb-0">Nenhum vinculado</p>
-                            </div>
-                            <div class="text-xs mt-sm font-bold" style="color: var(--primary);">Solicitar →</div>
-                        </div>
-                    `}
-                </div>
-
-                <!-- Dieta do Personal / Nutricionista -->
-                <div class="card shadow-md relative overflow-hidden text-left cursor-pointer" style="border-radius: 20px; border: 1px solid var(--border);" onclick="router.navigate('/student/nutrition')">
-                    ${personalDiet ? `
-                        <div class="badge badge-success" style="position: absolute; top: 10px; right: 10px; font-size: 0.6rem;">ATIVA</div>
-                        <div class="p-md flex flex-col justify-between h-full">
-                            <div>
-                                <div style="font-size: 2.2rem; margin-bottom: 0.2rem;">👨‍⚕️</div>
-                                <h4 class="mb-xs" style="font-size: 1.1rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Personal Nutri</h4>
-                                <p class="text-xs text-muted mb-0" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">De ${personalDiet.personal_name || 'Nutri/Personal'}</p>
-                            </div>
-                            <div class="text-sm font-bold mt-sm" style="color: var(--primary);">${personalDiet.calories || 0} kcal</div>
-                        </div>
-                    ` : `
-                        <div class="badge" style="position: absolute; top: 10px; right: 10px; font-size: 0.6rem; background: rgba(0,0,0,0.1); color: var(--text-muted);">VAZIO</div>
-                        <div class="p-md flex flex-col justify-between h-full">
-                            <div>
-                                <div style="font-size: 2.2rem; margin-bottom: 0.2rem; filter: grayscale(1); opacity: 0.5;">👨‍⚕️</div>
-                                <h4 class="mb-xs" style="font-size: 1.1rem; font-weight: 800; color: var(--text-muted);">Personal Nutricionista</h4>
-                                <p class="text-xs text-muted mb-0">Nenhuma vinculada</p>
-                            </div>
-                            <div class="text-xs mt-sm font-bold" style="color: var(--primary);">Solicitar →</div>
-                        </div>
-                    `}
-                </div>
-
-                <!-- Dieta com IA -->
-                <div class="card shadow-md relative overflow-hidden text-left cursor-pointer" style="border-radius: 20px; border: 1px solid rgba(168,85,247,0.3); background: linear-gradient(135deg, rgba(99,102,241,0.05) 0%, rgba(168,85,247,0.05) 100%);" onclick="router.navigate('/student/nutrition')">
-                    ${aiDiet ? `
-                        <div class="badge" style="position: absolute; top: 10px; right: 10px; font-size: 0.6rem; background: linear-gradient(90deg, #6366f1, #a855f7); color: white;">IA</div>
-                        <div class="p-md flex flex-col justify-between h-full">
-                            <div>
-                                <div style="font-size: 2.2rem; margin-bottom: 0.2rem;">🤖</div>
-                                <h4 class="mb-xs" style="font-size: 1.1rem; font-weight: 800;">T-FIT IA</h4>
-                                <p class="text-xs text-muted mb-0">Gerada pela IA</p>
-                            </div>
-                            <div class="text-sm font-bold mt-sm" style="color: #a855f7;">${aiDiet.calories || 0} kcal</div>
-                        </div>
-                    ` : `
-                        <div class="badge" style="position: absolute; top: 10px; right: 10px; font-size: 0.6rem; background: rgba(0,0,0,0.1); color: var(--text-muted);">VAZIO</div>
-                        <div class="p-md flex flex-col justify-between h-full">
-                            <div>
-                                <div style="font-size: 2.2rem; margin-bottom: 0.2rem; filter: grayscale(1); opacity: 0.5;">🤖</div>
-                                <h4 class="mb-xs" style="font-size: 1.1rem; font-weight: 800; color: var(--text-muted);">T-FIT IA</h4>
-                                <p class="text-xs text-muted mb-0">Crie agora sua dieta</p>
-                            </div>
-                            <div class="text-xs mt-sm font-bold" style="color: #a855f7;">Gerar →</div>
-                        </div>
-                    `}
-                </div>
-            </div>
-
-            <!-- Card de Avaliação Física -->
-            <div class="card shadow-md relative overflow-hidden text-left cursor-pointer mt-sm" style="border-radius: 20px; border: 1px solid var(--border); background: linear-gradient(135deg, rgba(16,185,129,0.05) 0%, rgba(5,150,105,0.05) 100%);" onclick="router.navigate('/student/assessments')">
-                <div class="p-md flex items-center justify-between">
-                    <div class="flex items-center gap-md">
-                        <div style="font-size: 2.2rem;">📏</div>
-                        <div>
-                            <h4 class="mb-xs" style="font-size: 1.1rem; font-weight: 800;">Avaliação Física</h4>
-                            <p class="text-xs text-muted mb-0">Ver meu progresso e evolução</p>
-                        </div>
-                    </div>
-                    <div class="text-xs font-bold" style="color: var(--primary);">Abrir →</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 4. INTELIGÊNCIA T-FIT IA (AI Section) -->
+        <!-- 5. INTELIGÊNCIA T-FIT IA (AI Section) MOVED -->
         <div class="ai-card-premium mb-xl shadow-glow relative overflow-hidden">
             <style>
                 .ai-card-premium {
@@ -1383,9 +1246,11 @@ router.addRoute('/student/dashboard', async () => {
                 }
                 .btn-ai-glow-v2 .label {
                     font-weight: 700;
-                    font-size: 0.85rem;
-                    letter-spacing: 0.5px;
+                    font-size: 0.65rem;
+                    letter-spacing: 0px;
+                    text-align: center;
                     opacity: 0.9;
+                    white-space: nowrap;
                 }
                 .ai-badge {
                     background: linear-gradient(90deg, #6366f1, #a855f7);
@@ -1410,22 +1275,25 @@ router.addRoute('/student/dashboard', async () => {
             </div>
             
             <div class="grid grid-3 gap-sm relative z-10">
-                <div class="btn-ai-glow-v2" onclick="openAIWorkoutGenerator()">
+                <div class="btn-ai-glow-v2" onclick="window.PaymentHelper.handlePremiumAction('Gerar Treino IA', null, () => openAIWorkoutGenerator(), 'ai')">
                     <div class="icon">🏋️</div>
-                    <span class="label">Treino IA</span>
+                    <span class="label">GERAR TREINO COM IA</span>
+                    ${!hasAI ? '<div class="lock-icon" style="position: absolute; top: 5px; right: 5px; font-size: 10px;">🔒</div>' : ''}
                 </div>
-                <div class="btn-ai-glow-v2" onclick="openAIDietGenerator()">
+                <div class="btn-ai-glow-v2" onclick="window.PaymentHelper.handlePremiumAction('Gerar Dieta IA', null, () => openAIDietGenerator(), 'ai')">
                     <div class="icon">🥗</div>
-                    <span class="label">Dieta IA</span>
+                    <span class="label">GERAR DIETA COM IA</span>
+                    ${!hasAI ? '<div class="lock-icon" style="position: absolute; top: 5px; right: 5px; font-size: 10px;">🔒</div>' : ''}
                 </div>
-                <div class="btn-ai-glow-v2" onclick="openAssessmentGenerator()">
+                <div class="btn-ai-glow-v2" onclick="window.PaymentHelper.handlePremiumAction('Gerar Avaliação IA', null, () => openAssessmentGenerator(), 'ai')">
                     <div class="icon">📸</div>
-                    <span class="label">Avaliação IA</span>
+                    <span class="label">GERAR AVALIAÇÃO COM IA</span>
+                    ${!hasAI ? '<div class="lock-icon" style="position: absolute; top: 5px; right: 5px; font-size: 10px;">🔒</div>' : ''}
                 </div>
             </div>
         </div>
 
-        <!-- 5. ATIVIDADE SEMANAL (Weekly Progress) -->
+        <!-- 4. ATIVIDADE SEMANAL (Weekly Progress) MOVED -->
         <div class="chart-container mb-xl shadow-sm">
             <style>
                 .chart-container {
@@ -1441,8 +1309,112 @@ router.addRoute('/student/dashboard', async () => {
             </div>
         </div>
 
+        <!-- 3.5. DIETAS E TREINOS -->
+        <div class="mb-xl">
+            <div class="flex justify-between items-center mb-md px-1">
+                <h3 class="mb-0" style="font-size: 1.25rem;">VISUALIZAR DIETAS</h3>
+            </div>
+            
+            <div class="grid grid-1">
+                <!-- Dieta com IA -->
+                <div class="card shadow-md relative overflow-hidden text-left cursor-pointer" style="border-radius: 20px; border: 1px solid rgba(168,85,247,0.3); background: linear-gradient(135deg, rgba(99,102,241,0.05) 0%, rgba(168,85,247,0.05) 100%);" 
+                     onclick="window.PaymentHelper.handlePremiumAction('Dieta IA', null, () => router.navigate('/student/nutrition'), 'ai')">
+                    ${aiDiet ? `
+                        <div class="badge" style="position: absolute; top: 10px; right: 10px; font-size: 0.6rem; background: linear-gradient(90deg, #6366f1, #a855f7); color: white;">IA</div>
+                        <div class="p-md flex flex-col justify-between h-full">
+                            <div>
+                                <div style="font-size: 2.2rem; margin-bottom: 0.2rem;">🤖</div>
+                                <h4 class="mb-xs" style="font-size: 1.1rem; font-weight: 800;">DIETA COM IA</h4>
+                            </div>
+                            <div class="text-sm font-bold mt-sm" style="color: #a855f7;">${aiDiet.calories || 0} kcal</div>
+                        </div>
+                    ` : `
+                        <div class="badge" style="position: absolute; top: 10px; right: 10px; font-size: 0.6rem; background: rgba(0,0,0,0.1); color: var(--text-muted);">VAZIO</div>
+                        <div class="p-md flex flex-col justify-between h-full">
+                            <div>
+                                <div style="font-size: 2.2rem; margin-bottom: 0.2rem; filter: grayscale(1); opacity: 0.5;">🤖</div>
+                                <h4 class="mb-xs" style="font-size: 1.1rem; font-weight: 800; color: var(--text-muted);">DIETA COM IA</h4>
+                                <p class="text-xs text-muted mb-0">GERAR NOVA DIETA COM IA</p>
+                            </div>
+                            <div class="text-xs mt-sm font-bold" style="color: #a855f7;">Gerar →</div>
+                        </div>
+                    `}
+                </div>
+            </div>
+
+            </div>
+        </div>
+
+        <!-- 3.6 ACOMPANHAMENTO (Registro e Gamification) -->
+        <div class="mb-xl">
+            <div class="flex justify-between items-center mb-md px-1">
+                <h3 class="mb-0" style="font-size: 1.25rem;">MEU ACOMPANHAMENTO</h3>
+            </div>
+
+            <!-- Card de Registro Diário -->
+            <div class="card shadow-md relative overflow-hidden text-left cursor-pointer mt-sm" style="border-radius: 20px; border: 1px solid var(--border); background: linear-gradient(135deg, rgba(16,185,129,0.05) 0%, rgba(5,150,105,0.05) 100%);" onclick="router.navigate('/student/progress')">
+                <div class="p-md flex items-center justify-between">
+                    <div class="flex items-center gap-md">
+                        <div style="font-size: 2.2rem;">📏</div>
+                        <div>
+                            <h4 class="mb-xs" style="font-size: 1.1rem; font-weight: 800;">Registro Diário</h4>
+                            <p class="text-xs text-muted mb-0">Registrar e acessar dados de IMC</p>
+                        </div>
+                    </div>
+                    <div class="text-xs font-bold" style="color: var(--primary);">Abrir →</div>
+                </div>
+            </div>
+
+            <!-- Painel de Saldo Atual & Convites -->
+            <div class="card shadow-glow mt-sm mb-lg relative overflow-hidden" style="border-radius: 20px; border: 1px solid rgba(251,191,36,0.2); background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);">
+                <div class="p-lg flex justify-between items-center flex-wrap gap-md">
+                    <div>
+                        <p class="text-xs text-indigo-300 uppercase tracking-widest font-black mb-xs">Saldo Atual</p>
+                        <div class="flex items-center gap-sm">
+                            <span style="font-size: 2.2rem; filter: drop-shadow(0 2px 5px rgba(251,191,36,0.5));">💎</span>
+                            <h2 class="text-4xl font-black text-white mb-0" id="dash-tpoints-balance">${currentUser.t_points || 0}</h2>
+                        </div>
+                    </div>
+                    <button class="btn font-black shadow-sm p-sm" style="background: #fbbf24; color: #78350f; border-radius: 12px; border: none; min-width: 140px; font-size: 0.85rem;" onclick="router.navigate('/student/convites')">
+                        🚀 CONVIDE E GANHE
+                    </button>
+                </div>
+            </div>
+
+            <!-- Card T-Points & Missões -->
+            <div class="card shadow-md relative overflow-hidden text-left cursor-pointer mt-sm" style="border-radius: 20px; border: 1px solid rgba(139,92,246,0.3); background: linear-gradient(135deg, rgba(139,92,246,0.05) 0%, rgba(109,40,217,0.05) 100%);" onclick="router.navigate('/student/missoes')">
+                <div class="p-md flex items-center justify-between">
+                    <div class="flex items-center gap-md">
+                        <div style="font-size: 2.2rem; filter: drop-shadow(0 2px 4px rgba(139,92,246,0.4));">🏆</div>
+                        <div>
+                            <h4 class="mb-xs" style="font-size: 1.1rem; font-weight: 800; color: #a78bfa;">T-Points & Missões</h4>
+                            <p class="text-xs text-muted mb-0">Ver meu saldo e missões ativas</p>
+                        </div>
+                    </div>
+                    <div class="text-xs font-bold" style="color: #a78bfa;">Ver Tudo →</div>
+                </div>
+            </div>
 
 
+            <!-- Card Loja de Recompensas -->
+            <div class="card shadow-md relative overflow-hidden text-left cursor-pointer mt-sm" style="border-radius: 20px; border: 1px solid rgba(245,158,11,0.3); background: linear-gradient(135deg, rgba(245,158,11,0.05) 0%, rgba(217,119,6,0.05) 100%);" onclick="router.navigate('/student/loja')">
+                <div class="badge" style="position: absolute; top: 10px; right: 10px; font-size: 0.6rem; background: linear-gradient(90deg, #f59e0b, #d97706); color: white; border-radius: 10px; padding: 2px 8px; font-weight: bold;">T-POINTS</div>
+                <div class="p-md flex items-center justify-between">
+                    <div class="flex items-center gap-md">
+                        <div style="font-size: 2.2rem; filter: drop-shadow(0 2px 4px rgba(245,158,11,0.4));">🛒</div>
+                        <div>
+                            <h4 class="mb-xs" style="font-size: 1.1rem; font-weight: 800; color: #fbbf24;">Loja de Recompensas</h4>
+                            <p class="text-xs text-muted mb-0">Troque pontos por benefícios exclusivos</p>
+                        </div>
+                    </div>
+                    <div class="text-xs font-bold" style="color: #fbbf24;">Visitar →</div>
+                </div>
+            </div>
+        </div>
+
+
+
+        
         <!-- Instagram Connect & Follow Section -->
         <div class="instagram-footer card mb-xl shadow-glow" style="background: linear-gradient(135deg, #833ab4 0%, #fd1d1d 50%, #fcb045 100%); color: white; border: none; border-radius: 28px; padding: 1.5rem; margin-top: 1rem;">
             <style>
@@ -1761,7 +1733,8 @@ const Pedometer = {
                 this._peakValue = avgMag;
             }
             // Detectar DESCIDA (final do passo)
-            else if (avgMag < 9.8 && this._wasAbove) {
+            else if (avgMag < 9.2 && this._wasAbove) { // Sensibilidade levemente ajustada para detecção de descida
+                const now = Date.now();
                 const interval = now - this._lastPeakTime;
 
                 // Verificar se intervalo está dentro do range de caminhada
@@ -1921,23 +1894,23 @@ window.logDailyActivity = () => {
     }
 
     const d = new Date();
-    const todayString = `${d.getFullYear()} -${(d.getMonth() + 1).toString().padStart(2, '0')} -${d.getDate().toString().padStart(2, '0')} `;
+    const todayString = d.toISOString().split('T')[0];
 
     // Função para buscar log do banco (sempre fresco)
     const getTodayLog = () => {
         const logs = db.query('activity_logs', l => l.student_id === currentUser.id) || [];
         return logs.find(l => {
             if (!l.date) return false;
-            return l.date.substring(0, 10) === todayString;
+            return l.date.split('T')[0] === todayString;
         }) || { steps: 0, calories: 0 };
     };
 
     const todayLog = getTodayLog();
 
     const content = `
-        <div class="p-md text-center" >
+        <div class="p-md text-center">
             
-            < !--MOSTRADOR PRINCIPAL-- >
+            <!-- MOSTRADOR PRINCIPAL -->
             <div class="mb-lg">
                 <div style="font-size: 3.5rem;" class="mb-xs" id="step-icon">👟</div>
                 <h1 class="text-4xl font-bold mb-xs" id="step-count" style="color: var(--primary);">
@@ -2065,7 +2038,7 @@ window.logDailyActivity = () => {
                 });
             }
 
-            UI.showNotification('Salvo!', `+ ${stats.steps} passos(Total: ${newSteps})`, 'success');
+            UI.showNotification('Salvo!', `+ ${stats.steps} passos (Total: ${newSteps})`, 'success');
 
             // Resetar UI primeiro
             _resetUI();
@@ -2074,11 +2047,18 @@ window.logDailyActivity = () => {
             setTimeout(() => {
                 const stepCountEl = document.getElementById('step-count');
                 const stepCaloriesEl = document.getElementById('step-calories');
+                const stepDistanceEl = document.getElementById('step-distance');
                 const historyStepsEl = document.getElementById('history-steps');
                 const historyCaloriesEl = document.getElementById('history-calories');
 
                 if (stepCountEl) stepCountEl.innerText = newSteps;
                 if (stepCaloriesEl) stepCaloriesEl.innerText = newCalories + ' kcal';
+                if (stepDistanceEl) {
+                    const height = currentUser.height || 170;
+                    const strideM = (height / 100) * 0.415;
+                    const totalDist = (newSteps * strideM) / 1000;
+                    stepDistanceEl.innerText = totalDist.toFixed(2) + ' km';
+                }
                 if (historyStepsEl) historyStepsEl.innerText = newSteps + ' passos';
                 if (historyCaloriesEl) historyCaloriesEl.innerText = newCalories + ' kcal';
             }, 100);
@@ -2095,12 +2075,13 @@ window.logDailyActivity = () => {
         const controls = document.getElementById('step-controls');
         if (controls) {
             controls.innerHTML = `
-        < button class="btn btn-success btn-xl w-full shadow-md" onclick = "window._startPedometer()" >
-            <span class="text-lg">▶ INICIAR CAMINHADA</span>
-                </button >
-        `;
+                <button class="btn btn-success btn-xl w-full shadow-md" onclick="window._startPedometer()">
+                    <span class="text-lg">▶ INICIAR CAMINHADA</span>
+                </button>
+            `;
         }
-        document.getElementById('step-distance').innerText = '0.00 km';
+        const distEl = document.getElementById('step-distance');
+        if (distEl) distEl.innerText = '0.00 km';
     }
 };
 
@@ -2953,27 +2934,11 @@ router.addRoute('/student/assessments', async () => {
             <button class="btn btn-ghost" onclick="router.navigate('/student/dashboard')">← Voltar</button>
         </div>
 
-        <!-- Seção de Opções: Personal vs IA -->
-        <div class="grid grid-2 gap-md mb-xl">
-            <!-- Opção Personal -->
-            <div class="card shadow-md border-shadow text-center p-md" style="background: rgba(var(--primary-rgb), 0.05); border: 1px solid var(--primary);">
-                <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🏋️‍♂️</div>
-                <h4 class="mb-xs">Do meu Personal</h4>
-                <p class="text-xs text-muted mb-md">Feitas presencialmente</p>
-                <button class="btn btn-primary btn-sm btn-block" onclick="document.getElementById('history-personal').scrollIntoView({behavior: 'smooth'})">
-                    Ver Histórico
-                </button>
-            </div>
-
-            <!-- Opção IA -->
-            <div class="card shadow-md border-shadow text-center p-md" style="background: rgba(168, 85, 247, 0.05); border: 1px solid #a855f7;">
-                <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🤖</div>
-                <h4 class="mb-xs">Gerada por IA</h4>
-                <p class="text-xs text-muted mb-md">Análise por foto</p>
-                <button class="btn btn-sm btn-block text-white" style="background: #a855f7;" onclick="window.startAIPhysicalAssessment()">
-                    Nova com IA ✨
-                </button>
-            </div>
+        <div class="mb-xl text-center">
+            <button class="btn btn-lg btn-block text-white" style="background: linear-gradient(135deg, #a855f7 0%, #7e22ce 100%); font-weight: 800; font-size: 1.1rem; box-shadow: 0 10px 25px rgba(168, 85, 247, 0.4);" onclick="window.startAIPhysicalAssessment()">
+                ✨ CRIAR NOVA AVALIAÇÃO COM IA 🤖
+            </button>
+            <p class="text-sm text-muted mt-md">A T-FIT IA analisará suas fotos e medidas instantaneamente.</p>
         </div>
 
         <h3 class="mb-md" id="history-personal">Histórico de Avaliações</h3>
@@ -2994,8 +2959,8 @@ router.addRoute('/student/assessments', async () => {
                             </div>
                         </div>
                         <div class="flex items-center gap-sm">
-                             <span class="badge ${a.is_ai_generated ? 'badge-primary' : 'badge-outline'}" style="${a.is_ai_generated ? 'background: #a855f7;' : ''}">
-                                ${a.is_ai_generated ? 'IA' : 'Personal'}
+                             <span class="badge badge-primary" style="background: #a855f7;">
+                                IA
                              </span>
                              <span>→</span>
                         </div>
@@ -3125,6 +3090,14 @@ window.startAIPhysicalAssessment = () => {
                     body_fat_percentage: parseFloat(aiResult.body_fat_est) || null,
                     notes: aiResult.analysis || '',
                     photos: [photoFront, photoRight, photoLeft].filter(Boolean),
+                    photo_front: photoFront,
+                    photo_side_right: photoRight,
+                    photo_side_left: photoLeft,
+                    ai_analysis: aiResult.analysis || '',
+                    recommendations: aiResult.recommendations,
+                    strengths: Array.isArray(aiResult.strengths) ? JSON.stringify(aiResult.strengths) : aiResult.strengths,
+                    improvements: Array.isArray(aiResult.improvements) ? JSON.stringify(aiResult.improvements) : aiResult.improvements,
+                    is_ai_generated: true,
                     measurements: {
                         ai_analysis: aiResult.analysis || '',
                         recommendations: aiResult.recommendations,
@@ -3469,9 +3442,22 @@ router.addRoute('/student/nutrition', () => {
                 <h1 class="page-title">Minha Dieta 🥗</h1>
                 <p class="page-subtitle">Plano alimentar personalizado</p>
             </div>
-            <button class="btn btn-sm btn-primary btn-ai" onclick="openAIDietGenerator()">
-                🔄 Atualizar Minha Dieta IA
-            </button>
+        </div>
+
+        <!-- Destaque para Atualizar Dieta IA -->
+        <div class="card shadow-glow mb-xl" style="background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%); border: 1px solid rgba(99,102,241,0.4); border-radius: 24px; cursor: pointer; transition: transform 0.2s;" onclick="openAIDietGenerator()">
+            <div class="p-lg flex items-center justify-between flex-wrap gap-md">
+                <div class="flex items-center gap-md">
+                    <div style="font-size: 2.5rem; filter: drop-shadow(0 2px 4px rgba(99,102,241,0.5));">🍎</div>
+                    <div>
+                        <h4 class="mb-xs text-white" style="font-size: 1.25rem; font-weight: 800;">Atualizar Minha Dieta IA</h4>
+                        <p class="text-indigo-200 text-xs mb-0 font-bold uppercase tracking-widest">GERAR NOVO CARDÁPIO INTELIGENTE</p>
+                    </div>
+                </div>
+                <button class="btn font-black shadow-sm" style="background: white; color: #312e81; border: none; padding: 12px 24px; border-radius: 14px; font-size: 0.9rem;">
+                    🔄 GERAR IA
+                </button>
+            </div>
         </div>
 
     ${diet ? `
@@ -3493,21 +3479,6 @@ router.addRoute('/student/nutrition', () => {
                     <div class="stat-label">Gorduras</div>
                 </div>
             </div>
-
-            ${diet.visualEvaluation ? `
-                <div class="card mb-xl" style="border-left: 5px solid var(--secondary);">
-                    <div class="card-body">
-                        <h4 class="text-secondary mb-sm">⚠️ AVISO IMPORTANTE</h4>
-                        <p class="text-sm mb-md font-weight-600">ESSA DIETA FOI GERADA COM BASE NAS SUAS RESPOSTA ISSO É UMA DICA NÃO UMA DIETA 100% INDICADA PARA MAIORES RESULTADOS CONTRATA UM PERSONAL TREINER FORMADO EM NUTRIÇÃO</p>
-                        ${diet.visualEvaluation ? `<p class="text-xs text-muted mb-md"><em>Nota do sistema: ${diet.visualEvaluation}</em></p>` : ''}
-                        <div class="flex gap-md overflow-x-auto pb-sm">
-                            ${diet.photos?.front ? `<div class="text-center"><img src="${diet.photos.front}" style="height: 100px; border-radius: 8px; border: 1px solid var(--border);"><div class="text-xs text-muted mt-xs">Frente</div></div>` : ''}
-                            ${diet.photos?.side ? `<div class="text-center"><img src="${diet.photos.side}" style="height: 100px; border-radius: 8px; border: 1px solid var(--border);"><div class="text-xs text-muted mt-xs">Lado</div></div>` : ''}
-                            ${diet.photos?.back ? `<div class="text-center"><img src="${diet.photos.back}" style="height: 100px; border-radius: 8px; border: 1px solid var(--border);"><div class="text-xs text-muted mt-xs">Costas</div></div>` : ''}
-                        </div>
-                    </div>
-                </div>
-            ` : ''}
 
             <div class="flex flex-col gap-lg">
                 ${diet.meals.map(meal => `
@@ -3900,76 +3871,11 @@ window.startWorkout = (id, studentId = null, resumeIndex = null) => {
                     <div class="exercise-immersive-visual">
                         <div class="muscle-tag-premium">${theme.label}</div>
                         ${(() => {
-                // 1. Get all video mappings
-                const videos = (typeof db !== 'undefined' && db.getAll) ? db.getAll('exercise_videos') : [];
-                if (!videos || videos.length === 0) return `<img src="${getExerciseVisual(ex.name)}" alt="${ex.name}" class="visual-boneco" id="workout-step-img">`;
+                // Use a helper function for consistent video rendering
+                const html = getExerciseVideoHTML(ex.name, true);
+                if (html) return html;
 
-                // 2. Normalize function for bulletproof matching
-                const clean = (str) => {
-                    if (!str) return "";
-                    return str.toString()
-                        .toLowerCase()
-                        .normalize("NFD")
-                        .replace(/[\u0300-\u036f]/g, "") // remove accents
-                        .replace(/(com|na|no|de|barra|halteres|maquina|polia|elastico|banco|sentado|deitado|em pe)$/g, "")
-                        .replace(/[^a-z0-9]/g, "")      // remove everything that isn't a letter or number
-                        .trim();
-                };
-
-                const targetName = clean(ex.name);
-
-                // 3. Match Strategy
-                // Strategy A: Exact cleaned name match
-                let match = videos.find(v => clean(v.exerciseName) === targetName);
-
-                // Strategy B: Partial match (either contains the other)
-                if (!match) {
-                    match = videos.find(v => {
-                        const mapped = clean(v.exerciseName);
-                        return mapped.length > 3 && (targetName.includes(mapped) || mapped.includes(targetName));
-                    });
-                }
-
-                if (match) console.log(`[VideoMatch] Encontrado para "${ex.name}":`, match.exerciseName);
-                else console.warn(`[VideoMatch] Nenhum vídeo encontrado para "${ex.name}" (Cleaned: ${targetName})`);
-
-
-                // 4. Render Video if match found
-                if (match && match.youtubeUrl && match.youtubeUrl.trim() !== "") {
-                    let videoId = '';
-                    const url = match.youtubeUrl.trim();
-
-                    // Comprehensive Video ID extraction
-                    const regExp = /^.*(?:youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|shorts\/)([^#&?]*).*/;
-                    const matchId = url.match(regExp);
-
-                    if (matchId && matchId[1] && matchId[1].length === 11) {
-                        videoId = matchId[1];
-                    } else if (url.length === 11 && !url.includes('/') && !url.includes('.')) {
-                        videoId = url;
-                    } else if (url.includes('shorts/')) {
-                        const parts = url.split('shorts/');
-                        if (parts[1]) videoId = parts[1].split(/[?#&]/)[0];
-                    }
-
-                    if (videoId) {
-                        return `
-                            <div class="video-container-premium" style="width: 100%; border-radius: 12px; overflow: hidden; background: #000; box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.1);">
-                                <div style="position: relative; padding-bottom: 56.25%; height: 0;">
-                                    <iframe 
-                                        style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;"
-                                        src="https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&rel=0&modestbranding=1&controls=1" 
-                                        allow="autoplay; encrypted-media" 
-                                        allowfullscreen 
-                                        title="${ex.name}">
-                                    </iframe>
-                                </div>
-                            </div>
-                        `;
-                    }
-                }
-
-                // 5. Fallback to default visual
+                // Fallback to default visual if no video mapping found
                 return `<img src="${getExerciseVisual(ex.name)}" alt="${ex.name}" class="visual-boneco" id="workout-step-img">`;
             })()}
                     </div>
@@ -3978,7 +3884,7 @@ window.startWorkout = (id, studentId = null, resumeIndex = null) => {
                 <div class="ultimate-stats-container">
                     <div class="ultimate-stat-card">
                         <div class="ultimate-stat-label">Séries</div>
-                        <div class="ultimate-stat-value">${ex.sets || '3'}</div>
+                        <div class="ultimate-stat-value">${ex.sets || ex.series || '3'}</div>
                     </div>
                     <div class="ultimate-stat-card">
                         <div class="ultimate-stat-label">Reps</div>
@@ -4066,13 +3972,9 @@ window.finishWorkout = async (workout, studentId = null) => {
         // Insert the completion using await to catch any DB errors properly
         await db.create('workout_completions', completionData);
 
-        // Award T-Points for workout completion (20 points if duration >= 30 mins)
-        if (duration >= 30) {
-            console.log(`[T - Points] Awarding 20 points to ${targetStudentId} for workout completion(${duration}min)`);
-            const { data: profile } = await supabase.from('profiles').select('t_points').eq('id', targetStudentId).single();
-            const currentPoints = profile?.t_points || 0;
-            await supabase.from('profiles').update({ t_points: currentPoints + 20 }).eq('id', targetStudentId);
-            UI.showNotification('Treino Concluído!', 'Parabéns! Você ganhou +20 T-PONTOS pelo seu esforço.', 'success');
+        // Award T-Points for workout completion
+        if (targetStudentId === currentUser.id && typeof GrowthSystem !== 'undefined') {
+            GrowthSystem.awardPoints(targetStudentId, 'treino_concluido');
         }
 
         // Clear active session

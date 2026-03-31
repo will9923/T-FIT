@@ -144,76 +144,82 @@ const WorkoutDB = {
 
 const WorkoutBuilder = {
     generate: (params) => {
-        console.log("WorkoutBuilder: Gerando treino inteligente...");
-        const { focus, equipment, level, specificGoal, daysPerWeek, intensity, observations } = params;
+        try {
+            console.log("WorkoutBuilder: Gerando treino inteligente...");
+            const { focus, equipment, level, specificGoal, daysPerWeek, intensity, observations } = params;
 
-        // 1. Filter by Equipment
-        // If 'home', we can use both 'home' and 'home_objects'.
-        // If 'gym', we can use everything.
-        let available = WorkoutDB.exercises.filter(ex => {
-            if (equipment === 'home_body') return ex.equipment === 'home';
-            if (equipment === 'home_weights') return ex.equipment === 'home' || ex.equipment === 'home_objects';
-            return true; // Academia completa can do everything
-        });
+            // 1. Filter by Equipment
+            let available = WorkoutDB.exercises.filter(ex => {
+                if (equipment === 'home_body') return ex.equipment === 'home';
+                if (equipment === 'home_weights') return ex.equipment === 'home' || ex.equipment === 'home_objects';
+                return true; 
+            });
 
-        // 2. Determine Number of Splits (User requested 1:1 mapping with days per week)
-        let numWorkouts = parseInt(daysPerWeek) || 3;
-        if (numWorkouts > 7) numWorkouts = 7; // Cap at daily
+            // 2. Determine Number of Splits
+            let numWorkouts = parseInt(daysPerWeek) || 3;
+            if (numWorkouts > 7) numWorkouts = 7; 
 
-        const intensityMap = {
-            'light': { series: 3, reps: '15', rest: '90' },
-            'moderate': { series: 3, reps: '12', rest: '60' },
-            'high': { series: 4, reps: '10', rest: '45' }
-        };
-        let iConfig = intensityMap[intensity] || intensityMap['moderate'];
+            const intensityMap = {
+                'light': { series: 3, reps: '15', rest: '90' },
+                'moderate': { series: 3, reps: '12', rest: '60' },
+                'high': { series: 4, reps: '10', rest: '45' }
+            };
+            let iConfig = intensityMap[intensity] || intensityMap['moderate'];
 
-        // Goal overrides for reps/series
-        if (specificGoal === 'hypertrophy') {
-            iConfig.reps = intensity === 'high' ? '8-10' : '10-12';
-            if (intensity === 'high') iConfig.series = 4;
-        } else if (specificGoal === 'strength') {
-            iConfig.reps = '4-8';
-            iConfig.series = 4;
-            iConfig.rest = '120'; // More rest for strength
-        } else if (specificGoal === 'endurance') {
-            iConfig.reps = '15-20';
-            iConfig.series = 3;
-            iConfig.rest = '45'; // Less rest for endurance
-        }
-
-        let splits = [];
-        for (let i = 0; i < numWorkouts; i++) {
-            let currentFocus = focus;
-            let workoutLetter = String.fromCharCode(65 + i);
-            let workoutName = `Treino ${workoutLetter}`;
-
-            // Intelligent Splitting Logic for Full Body focus
-            if (focus === 'Full Body') {
-                if (numWorkouts === 2) {
-                    currentFocus = i === 0 ? 'Push' : 'Pull';
-                } else if (numWorkouts === 3) {
-                    const focuses = ['Push', 'Pull', 'Legs'];
-                    currentFocus = focuses[i];
-                } else if (numWorkouts >= 4) {
-                    // Elaborate split (PPL + extra or Upper/Lower)
-                    const subFocuses = ['Peito', 'Costas', 'Pernas', 'Ombros', 'Braços', 'Core', 'Cardio'];
-                    currentFocus = subFocuses[i % subFocuses.length];
-                }
+            // Goal overrides
+            if (specificGoal === 'hypertrophy') {
+                iConfig.reps = intensity === 'high' ? '8-10' : '10-12';
+                if (intensity === 'high') iConfig.series = 4;
+            } else if (specificGoal === 'strength') {
+                iConfig.reps = '4-8';
+                iConfig.series = 4;
+                iConfig.rest = '120';
+            } else if (specificGoal === 'endurance') {
+                iConfig.reps = '15-20';
+                iConfig.series = 3;
+                iConfig.rest = '45';
             }
 
-            if (currentFocus !== focus) workoutName += ` - ${currentFocus}`;
+            let splits = [];
+            for (let i = 0; i < numWorkouts; i++) {
+                let currentFocus = focus;
+                let workoutLetter = String.fromCharCode(65 + i);
+                let workoutName = `Treino ${workoutLetter}`;
 
-            const exercises = WorkoutBuilder._selectIntelligently(available, currentFocus, iConfig, observations);
+                if (focus === 'Full Body') {
+                    if (numWorkouts === 2) {
+                        currentFocus = i === 0 ? 'Push' : 'Pull';
+                    } else if (numWorkouts === 3) {
+                        const focuses = ['Push', 'Pull', 'Legs'];
+                        currentFocus = focuses[i];
+                    } else if (numWorkouts >= 4) {
+                        const subFocuses = ['Peito', 'Costas', 'Pernas', 'Ombros', 'Braços', 'Core', 'Cardio'];
+                        currentFocus = subFocuses[i % subFocuses.length];
+                    }
+                }
 
-            splits.push({
-                name: workoutName,
-                type: (intensity === 'high' ? 'Intenso' : 'Padrão'),
-                duration: params.time || 60,
-                exercises: exercises
-            });
+                if (currentFocus !== focus) workoutName += ` - ${currentFocus}`;
+                const exercises = WorkoutBuilder._selectIntelligently(available, currentFocus, iConfig, observations);
+
+                splits.push({
+                    name: workoutName,
+                    type: (intensity === 'high' ? 'Intenso' : 'Padrão'),
+                    duration: params.time || 60,
+                    exercises: exercises
+                });
+            }
+
+            return splits;
+        } catch (error) {
+            console.error("Erro no WorkoutBuilder:", error);
+            if (typeof ErrorMonitor !== 'undefined') {
+                ErrorMonitor.logAutomatic('WORKOUT_GENERATION_FAILED', {
+                    message: error.message,
+                    params: params
+                }, 'WorkoutBuilder.generate');
+            }
+            throw error;
         }
-
-        return splits;
     },
 
     _selectIntelligently: (pool, focus, config, obs) => {
