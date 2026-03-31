@@ -11,6 +11,7 @@
     <uses-feature android:name="android.hardware.location.gps" />
     <!-- For OneSignal Push Notifications on Android 13+ -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 
     <application
         android:allowBackup="true"
