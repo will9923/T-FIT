@@ -47,6 +47,11 @@ jobs:
         run: |
           if [ -n "${{ secrets.ANDROID_KEYSTORE_FILE }}" ]; then
             echo "${{ secrets.ANDROID_KEYSTORE_FILE }}" | base64 --decode > $GITHUB_WORKSPACE/release-key.jks
+          elif [ -f "keystore_base64.txt" ]; then
+            base64 --decode keystore_base64.txt > $GITHUB_WORKSPACE/release-key.jks
+          fi
+          
+          if [ -f "$GITHUB_WORKSPACE/release-key.jks" ]; then
             cd android
             ./gradlew bundleRelease \
               -Pandroid.injected.signing.store.file=$GITHUB_WORKSPACE/release-key.jks \
@@ -54,7 +59,7 @@ jobs:
               -Pandroid.injected.signing.key.alias=${{ secrets.ANDROID_KEY_ALIAS }} \
               -Pandroid.injected.signing.key.password=${{ secrets.ANDROID_KEY_PASSWORD }}
           else
-            echo "Skipping signed AAB build because secrets are not set."
+            echo "Skipping signed AAB build because no keystore was found."
           fi
 
       - name: Upload AAB
