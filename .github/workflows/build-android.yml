@@ -45,10 +45,10 @@ jobs:
 
       - name: Build Android AAB
         run: |
-          if [ -n "${{ secrets.ANDROID_KEYSTORE_FILE }}" ]; then
-            echo "${{ secrets.ANDROID_KEYSTORE_FILE }}" | base64 --decode > $GITHUB_WORKSPACE/release-key.jks
-          elif [ -f "keystore_base64.txt" ]; then
-            base64 --decode keystore_base64.txt > $GITHUB_WORKSPACE/release-key.jks
+          if [ -f "keystore_base64.txt" ]; then
+            base64 -d keystore_base64.txt > $GITHUB_WORKSPACE/release-key.jks
+          elif [ -n "${{ secrets.ANDROID_KEYSTORE_FILE }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_FILE }}" | base64 -d > $GITHUB_WORKSPACE/release-key.jks
           fi
           
           if [ -f "$GITHUB_WORKSPACE/release-key.jks" ]; then
