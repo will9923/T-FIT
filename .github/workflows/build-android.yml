@@ -19,9 +19,22 @@ jobs:
           node-version: '20'
 
       - name: Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build Web Assets
         run: |
-          npm install --legacy-peer-deps
-          npx cap sync android
+          mkdir -p www
+          # Copy matching files from root with portable-ish shell commands
+          for ext in html js css png mp4 json jpeg webp gif svg ico webmanifest; do
+            cp *."$ext" www/ 2>/dev/null || true
+          done
+          # Remove files that shouldn't be in the final web bundle
+          rm www/package.json www/package-lock.json www/capacitor.config.json www/firebase.json 2>/dev/null || true
+          # Copy assets directory if it exists
+          if [ -d "assets" ]; then cp -r assets www/; fi
+
+      - name: Capacitor Sync
+        run: npx cap sync android
 
       - name: Setup Java
         uses: actions/setup-java@v4
