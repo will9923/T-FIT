@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace "com.tfit.app"
+    namespace "com.tfit.treinos"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.tfit.app"
+        applicationId "com.tfit.treinos"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 7
