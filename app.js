@@ -13,9 +13,7 @@ class Database {
             'payments', 'contracts', 'posts', 'comments', 'stories',
             'conversations', 'messages', 'notifications', 'ads', 'exercise_videos',
             'workout_completions', 'media_assets', 'activity_logs',
-            'planos_personal', 'alunos_planos', 'pagamentos', 'tfit_payments',
-            'app_convites', 'tfit_recompensas', 'tfit_resgates', 'tfit_missoes', 'tfit_missoes_usuario',
-            'recompensas', 'missoes', 'indicacoes', 'config_pontos'
+            'planos_personal', 'alunos_planos', 'pagamentos', 'tfit_payments'
         ];
         // Virtual mapping for collections that live in the same table
         this.virtualCollections = {
@@ -501,10 +499,6 @@ class Database {
             // Exercícios
             'exerciseName': 'exercise_name',
             'youtubeUrl': 'youtube_url',
-            'mediaType': 'media_type',
-            'photoFront': 'photo_front',
-            'photoSideRight': 'photo_side_right',
-            'photoSideLeft': 'photo_side_left',
 
             // Workouts
             'studentId': 'student_id',
@@ -571,8 +565,8 @@ class Database {
 
             // Special handling for 'id': if it's a fake frontend ID (e.g. 'post_123'), remove it.
             // Let the database gen_random_uuid() handle it instead.
-            // 1. Skip temporary/fake IDs (except for media_assets which uses name-based IDs)
-            if (dbKey === 'id' && !isUUID(data[key]) && collection !== 'media_assets') {
+            // 1. Skip temporary/fake IDs
+            if (dbKey === 'id' && !isUUID(data[key])) {
                 return;
             }
 
@@ -1052,7 +1046,6 @@ class UI {
                     saveBtn.disabled = false;
                     saveBtn.innerText = originalText;
                     console.error("[Modal] Save error:", err);
-                    UI.showNotification('Erro', err.message || 'Ocorreu um erro ao salvar.', 'error');
                 }
             });
         }
@@ -1618,6 +1611,7 @@ class UI {
                 otherItems = [
                     { path: '/student/mapbox', icon: '📍', label: 'Waze' },
                     { path: '/student/payments', icon: '💳', label: 'Financeiro' },
+                    { path: '/student/marketplace', icon: '👥', label: 'Marketplace de Personals' },
                     { path: '/student/nutrition', icon: '🥗', label: 'Minha dieta' },
                     { path: '/student/assessments', icon: '📏', label: 'Avaliação Física' },
                     { path: '/notifications', icon: '🔔', label: 'Notificações' },
@@ -1640,6 +1634,7 @@ class UI {
             } else if (userType === 'admin') {
                 featuredItems = [
                     { path: '/admin/dashboard', icon: '📊', label: 'Início' },
+                    { path: '/admin/personals', icon: '🎓', label: 'Personal' },
                     { path: '/admin/students', icon: '👥', label: 'Alunos' },
                 ];
                 otherItems = [
@@ -2079,7 +2074,6 @@ class UI {
 
         // Reset global photo on open
         window._activeWorkoutPhoto = null;
-        window._capturedWorkoutCard = null;
 
         const modalContent = `
                 <div id="share-card-container" class="workout-celebration-premium">
@@ -2252,8 +2246,8 @@ class UI {
             </div>
 
                 <div class="share-actions" style="display: flex; flex-direction: column; gap: 12px; margin-top: 1.5rem;">
-                    <input type="file" id="workout-photo-input" accept="image/*" capture="user" style="display: none;" onchange="window.handleWorkoutPhoto(this)">
-                    <input type="file" id="workout-photo-upload" accept="image/*" style="display: none;" onchange="window.handleWorkoutPhoto(this)">
+                    <input type="file" id="workout-photo-input" accept="image/*" capture="user" hidden onchange="window.handleWorkoutPhoto(this)">
+                        <input type="file" id="workout-photo-upload" accept="image/*" hidden onchange="window.handleWorkoutPhoto(this)">
 
                             <div class="flex gap-sm">
                                 <button class="btn btn-outline btn-lg flex-1" onclick="window.captureSelfie()" style="border-width: 2px; font-weight: 700;">
@@ -2309,17 +2303,17 @@ class UI {
                     window.tfeed = new TFeedV2();
                 }
 
-                    if (window.tfeed && typeof window.tfeed.openWorkoutShareModal === 'function') {
-                        window.tfeed.openWorkoutShareModal({
-                            title: dynamicActiveWorkoutName,
-                            duration: `${dynamicDuration} min`,
-                            calories: '350 kcal',
-                            dayName: dynamicDayName,
-                            capturedImg: finalImg
-                        });
-                    } else {
-                        UI.showNotification('Erro', 'T-Feed não está disponível no momento', 'error');
-                    }
+                if (window.tfeed && typeof window.tfeed.openWorkoutShareModal === 'function') {
+                    window.tfeed.openWorkoutShareModal({
+                        title: dynamicActiveWorkoutName,
+                        duration: `${dynamicDuration} min`,
+                        calories: '350 kcal',
+                        dayName: dynamicDayName,
+                        capturedImg: finalImg
+                    });
+                } else {
+                    UI.showNotification('Erro', 'T-Feed não está disponível no momento', 'error');
+                }
             } catch (err) {
                 btn.innerHTML = originalText;
                 btn.disabled = false;
@@ -2601,9 +2595,63 @@ router.addRoute('/notifications', () => {
     }
 });
 
-// Home / Login Selection (Bypassed directly to student login)
+// Home / Login Selection (Now separate route)
 router.addRoute('/login-selection', () => {
-    router.navigate('/student/login');
+    const app = document.getElementById('app');
+    app.innerHTML = `
+        <div class="auth-container">
+            <div class="auth-card" style="max-width: 800px; width: 100%;">
+                <div class="auth-logo mb-xl">
+                    <img src="./logo.png" alt="T-FIT" style="width: 100%; max-width: 250px; margin: 0 auto; display: block; filter: drop-shadow(0 0 10px rgba(99, 102, 241, 0.3));">
+                    <p class="text-xl mt-md">Como você deseja acessar?</p>
+                </div>
+                
+                <div class="grid grid-2 gap-xl">
+                    <!-- Student Area -->
+                    <div class="card p-lg text-center" style="border: 2px solid var(--primary-light);">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">👤</div>
+                        <h2 class="mb-md">Sou Aluno</h2>
+                        <p class="text-muted mb-lg">Treine com IA ou encontre seu Personal ideal.</p>
+                        
+                        <div class="flex flex-col gap-md">
+                            <button class="btn btn-primary btn-block" onclick="router.navigate('/student/login')">
+                                Fazer Login
+                            </button>
+                            <button class="btn btn-outline btn-block" onclick="router.navigate('/student/register')">
+                                Criar Conta Grátis
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Personal Area -->
+                    <div class="card p-lg text-center" style="border: 2px solid var(--secondary);">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">💪</div>
+                        <h2 class="mb-md">Sou Personal</h2>
+                        <p class="text-muted mb-lg">Gerencie alunos, treinos e pagamentos.</p>
+                        
+                        <div class="flex flex-col gap-md">
+                            <button class="btn btn-secondary btn-block" onclick="router.navigate('/personal/login')">
+                                Área do Profissional
+                            </button>
+                            <button class="btn btn-outline btn-block" onclick="router.navigate('/personal/register')">
+                                Cadastrar-se
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-2xl text-center">
+                    <button class="btn btn-ghost" onclick="router.navigate('/')">← Voltar ao Início</button>
+                </div>
+                
+                <div class="mt-lg text-center">
+                     <a href="#" onclick="event.preventDefault(); router.navigate('/admin/login')" class="text-muted hover:text-primary transition-colors text-sm">
+                        Acesso Administrativo
+                    </a>
+                </div>
+            </div>
+        </div>
+    `;
 });
 
 // NEW LANDING PAGE
@@ -2612,70 +2660,166 @@ router.addRoute('/', () => {
     if (auth.isAuthenticated()) {
         const user = auth.getCurrentUser();
         if (user.type === 'student') return router.navigate('/student/dashboard');
-        // Personal option removed completely
+        if (user.type === 'personal') return router.navigate('/personal/dashboard');
         if (user.type === 'admin') return router.navigate('/admin/dashboard');
     }
 
-    if (window.LandingPage) {
-        LandingPage.init();
-    } else {
-        // Fallback simple landing if module fails
-        const app = document.getElementById('app');
-        app.innerHTML = `
-            <div class="landing-page padding-xl text-center">
-                <img src="./logo.png" style="height: 60px; margin-bottom: 2rem;">
-                <h1>TFIT - A Nova Geração Fitness</h1>
-                <p>O poder da IA para seu treino e dieta.</p>
-                <button class="btn btn-primary" onclick="router.navigate('/student/login')">COMEÇAR AGORA</button>
+    const app = document.getElementById('app');
+    app.innerHTML = `
+        <div class="landing-page">
+            <nav class="landing-nav">
+                <div class="landing-logo">
+                    <img src="./logo.png" alt="T-FIT" style="height: 40px; vertical-align: middle; filter: drop-shadow(0 0 10px rgba(220, 38, 38, 0.3));">
+                </div>
+                <div class="flex gap-md">
+                    <button class="btn btn-sm btn-ghost" onclick="router.navigate('/login-selection')">Entrar</button>
+                    <button class="btn btn-sm btn-primary" onclick="router.navigate('/login-selection')" style="border-radius: 10px; font-weight: 700;">Começar Agora</button>
+                </div>
+            </nav>
+
+            <header class="landing-hero">
+                <div class="container">
+                    <span class="hero-badge">✨ A Nova Era do Treinamento</span>
+                    <h1 class="hero-title">Seu Corpo, Suas Regras,<br>Resultados Reais.</h1>
+                    <p class="hero-subtitle">
+                        A plataforma definitiva que une a precisão da Inteligência Artificial com a expertise dos melhores Personal Trainers do mercado.
+                    </p>
+                    <div class="hero-cta-group">
+                        <button class="btn-landing-primary" onclick="router.navigate('/login-selection')">
+                            🚀 QUERO COMEÇAR AGORA
+                        </button>
+                        <button class="btn btn-landing-outline" onclick="document.getElementById('features').scrollIntoView({behavior: 'smooth'})" style="border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: #fff; padding: 16px 32px; border-radius: 12px; font-weight: 700; cursor: pointer;">
+                            CONHECER VANTAGENS
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <section class="social-proof-section">
+                <div class="container">
+                    <div class="social-proof-grid">
+                        <div class="social-stat">
+                            <span class="social-stat-value">+10.000</span>
+                            <span class="social-stat-label">Usuários Ativos</span>
+                        </div>
+                        <div class="social-stat">
+                            <span class="social-stat-value">4.9/5</span>
+                            <span class="social-stat-label">Avaliação na Store</span>
+                        </div>
+                        <div class="social-stat">
+                            <span class="social-stat-value">+500</span>
+                            <span class="social-stat-label">Personais Parceiros</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="features" class="landing-features">
+                <div class="text-center mb-2xl">
+                    <span class="hero-badge" style="background: rgba(59, 130, 246, 0.1); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3);">Para Alunos</span>
+                    <h2 class="text-4xl font-black mt-md mb-sm">Treine com Inteligência</h2>
+                    <p class="text-muted max-w-2xl mx-auto">Tecnologia de ponta para quem busca performance e praticidade.</p>
+                </div>
+                
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">🤖</div>
+                        <h3 class="feature-title">Prescrição via IA</h3>
+                        <p class="feature-desc">Algoritmos que analisam seu perfil e criam o treino perfeito para seu objetivo em segundos.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">📈</div>
+                        <h3 class="feature-title">Gestão de Cargas</h3>
+                        <p class="feature-desc">Acompanhe sua progressão de força e volume total de treino com gráficos profissionais.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">🥗</div>
+                        <h3 class="feature-title">Dieta Inteligente</h3>
+                        <p class="feature-desc">Cálculo de macros e planos alimentares flexíveis gerados para acelerar seus ganhos.</p>
+                    </div>
+                </div>
+
+                <div class="text-center mb-2xl mt-3xl">
+                    <span class="hero-badge" style="background: rgba(16, 185, 129, 0.1); color: #34d399; border-color: rgba(16, 185, 129, 0.3);">Para Personals</span>
+                    <h2 class="text-4xl font-black mt-md mb-sm">Escale sua Consultoria</h2>
+                    <p class="text-muted max-w-2xl mx-auto">As ferramentas que você precisa para gerenciar 10x mais alunos.</p>
+                </div>
+
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">💎</div>
+                        <h3 class="feature-title">Presença Digital</h3>
+                        <p class="feature-desc">Um aplicativo com sua marca para impressionar seus alunos e fidelizar sua base.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">🚀</div>
+                        <h3 class="feature-title">Marketplace</h3>
+                        <p class="feature-desc">Apareça para milhares de alunos que buscam um personal qualificado na nossa vitrine.</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="testimonials-section">
+                <div class="container">
+                    <div class="text-center mb-2xl">
+                        <h2 class="text-3xl font-bold">Quem usa, aprova! ⭐</h2>
+                    </div>
+                    <div class="testimonials-grid">
+                        <div class="testimonial-card">
+                            <p class="testimonial-content">"O T-FIT mudou minha forma de treinar. A IA monta treinos incríveis e eu finalmente vejo resultados reais."</p>
+                            <div class="testimonial-user">
+                                <div class="testimonial-avatar">RL</div>
+                                <div class="testimonial-info">
+                                    <h4>Ricardo Lima</h4>
+                                    <p>Aluno há 6 meses</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="testimonial-card">
+                            <p class="testimonial-content">"Como personal, ganhei muita agilidade. Consigo gerenciar meus 40 alunos com facilidade e profissionalismo."</p>
+                            <div class="testimonial-user">
+                                <div class="testimonial-avatar">AL</div>
+                                <div class="testimonial-info">
+                                    <h4>Amanda Lopes</h4>
+                                    <p>Personal Trainer Elite</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="testimonial-card">
+                            <p class="testimonial-content">"O sistema de pagamentos automáticos é um sonho. Parar de cobrar aluno manual me economizou horas."</p>
+                            <div class="testimonial-user">
+                                <div class="testimonial-avatar">JP</div>
+                                <div class="testimonial-info">
+                                    <h4>João Pedro</h4>
+                                    <p>Personal Trainer</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <div class="landing-footer-cta card mx-auto mb-2xl" style="max-width: 900px; border-radius: 40px; background: linear-gradient(135deg, rgba(220, 38, 38, 0.1) 0%, rgba(30, 41, 59, 0.8) 100%);">
+                <h2 class="text-4xl font-black mb-lg">Pronto para transformar seu corpo?</h2>
+                <p class="text-muted mb-xl max-w-2xl mx-auto">Junte-se a comunidade T-FIT e tenha acesso as ferramentas de elite do fitness mundial.</p>
+                <button class="btn-landing-primary" onclick="router.navigate('/login-selection')" style="transform: scale(1.1);">
+                    CRIAR MINHA CONTA GRÁTIS
+                </button>
             </div>
-        `;
-    }
+
+            <footer class="landing-footer">
+                <div class="container">
+                    <img src="./logo.png" alt="T-FIT" style="height: 30px; opacity: 0.5; margin-bottom: 20px;">
+                    <p>&copy; ${new Date().getFullYear()} T-FIT. A tecnologia a serviço do seu resultado.</p>
+                </div>
+            </footer>
+        </div>
+    `;
 
     // Update database status indicator after render
     setTimeout(() => {
         UI.injectStatusIndicator();
-    }, 500);
-});
-
-// PRIVACY POLICY ROUTE
-router.addRoute('/privacy', async () => {
-    const app = document.getElementById('app');
-    UI.showLoading('Carregando Política...');
-
-    try {
-        const response = await fetch('privacy.html');
-        const html = await response.text();
-
-        // Extract body content
-        const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-        let content = bodyMatch ? bodyMatch[1] : html;
-
-        // Add back button and container
-        app.innerHTML = `
-            <div class="page p-lg" style="background: #000; color: #fff; line-height: 1.6; max-width: 800px; margin: 0 auto;">
-                <button class="btn btn-ghost mb-lg" onclick="window.history.back()" style="color: var(--primary);">← Voltar</button>
-                <div class="privacy-content">
-                    ${content}
-                </div>
-                <div class="text-center mt-2xl mb-2xl">
-                    <button class="btn btn-primary" onclick="window.history.back()">Entendi</button>
-                </div>
-            </div>
-            <style>
-                .privacy-content h1 { color: var(--primary); font-weight: 800; margin-bottom: 8px; text-align: center; font-size: 1.5rem; }
-                .privacy-content .last-update { text-align: center; color: #a1a1aa; font-size: 0.9em; margin-bottom: 32px; }
-                .privacy-content h2 { border-bottom: 2px solid var(--primary); padding-bottom: 8px; margin-top: 32px; font-size: 1.2em; font-weight: 700; color: #fff; }
-                .privacy-content p, .privacy-content ul { color: #e4e4e7; margin-bottom: 1rem; }
-                .privacy-content li { margin-bottom: 8px; }
-                .privacy-content .contact-info { background: #18181b; padding: 20px; border-radius: 12px; border: 1px solid #27272a; margin-top: 40px; }
-                .privacy-content .btn-back { display: none; } /* Hide the fixed link from HTML */
-            </style>
-        `;
-    } catch (err) {
-        app.innerHTML = `<div class="p-lg text-center">Erro ao carregar política. <button class="btn btn-primary" onclick="router.navigate('/')">Voltar</button></div>`;
-    } finally {
-        UI.hideLoading();
-    }
+    }, 100);
 });
 
 // Admin Login (SupaBase Auth Real)
@@ -2710,6 +2854,10 @@ router.addRoute('/admin/login', () => {
                 <div class="mt-md">
                     <button class="btn btn-ghost btn-block" onclick="router.navigate('/')">
                         ← Voltar
+                    </button>
+                    <!-- Atalho Demo (Remover depois) -->
+                    <button class="btn btn-sm btn-ghost mt-sm" onclick="auth.loginDirect('admin')" style="opacity: 0.5;">
+                        🗝️ Demo (Sem Senha)
                     </button>
                 </div>
             </div>
@@ -2824,7 +2972,7 @@ router.addRoute('/student/login', () => {
         <div class="auth-container">
             <div class="auth-card">
                 <div class="auth-logo">
-                    <img src="./logo.png" alt="T-FIT" id="admin-secret-gate" class="logo-tfit" style="width: 100%; max-width: 200px; margin: 0 auto 1rem; display: block; cursor: default;">
+                    <img src="./logo.png" alt="T-FIT" class="logo-tfit" style="width: 100%; max-width: 200px; margin: 0 auto 1rem; display: block;">
                     <p>Acesso Aluno</p>
                 </div>
                 
@@ -2871,21 +3019,6 @@ router.addRoute('/student/login', () => {
             </div>
         </div>
     `;
-
-    // Secret Admin Gate: Click 5 times on logo
-    let secretClicks = 0;
-    setTimeout(() => {
-        const logo = document.getElementById('admin-secret-gate');
-        if (logo) {
-            logo.addEventListener('click', () => {
-                secretClicks++;
-                if (secretClicks >= 5) {
-                    UI.showNotification('Acesso Restrito', 'Redirecionando...', 'info');
-                    router.navigate('/admin/login');
-                }
-            });
-        }
-    }, 500);
 
     document.getElementById('login-form').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -3238,18 +3371,22 @@ router.addRoute('/admin/post', () => {
 
 // Generic T-Feed Render Helper
 function renderTFeed() {
+    // Se o tfeed já existe e o wrapper já está no DOM, apenas reativa sem recriar
+    if (window.tfeed && window.tfeed.isInitialized && document.getElementById('tfeed-v2-wrapper')) {
+        window.tfeed.renderView('home');
+        return;
+    }
+
     let attempts = 0;
-    const maxAttempts = 20; // Increased retries for slower devices
+    const maxAttempts = 20;
 
     const tryRender = () => {
         const container = document.getElementById('t-feed-container');
 
-        // If container doesn't exist yet, we can try to create it if we are in the right context
         if (!container) {
             const dashboardContent = document.getElementById('dashboard-content');
             if (dashboardContent) {
-                console.log("[T-Feed Render] Creating container manually...");
-                dashboardContent.innerHTML = '<div id="t-feed-container" class="fade-in"></div>';
+                dashboardContent.innerHTML = '<div id="t-feed-container"></div>';
             }
         }
 
@@ -3272,12 +3409,6 @@ function renderTFeed() {
             attempts++;
             if (attempts < maxAttempts) {
                 setTimeout(tryRender, 250);
-            } else {
-                console.error("[T-Feed Render] Failed to find container or tfeed object after 20 attempts.");
-                const app = document.getElementById('app');
-                if (app && (!activeContainer || activeContainer.innerHTML === '')) {
-                    UI.showNotification('Erro de Carregamento', 'O T-Feed demorou demais para responder.', 'error');
-                }
             }
         }
     };

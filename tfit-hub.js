@@ -15,7 +15,7 @@ class TFitHub {
             mapCount: 0,
             lastMealGrade: '-',
             hydrationProgress: '0%',
-            hasHealthAlert: false
+            hasPowerAlert: false
         };
         this.init();
     }
@@ -194,11 +194,11 @@ class TFitHub {
                         </div>
                     </div>
 
-                    <div class="hub-item hub-item-health" onclick="hub.action('health')">
+                    <div class="hub-item hub-item-power" onclick="hub.action('power')">
                         <span class="hub-item-icon">🛡️</span>
                         <div class="hub-item-content">
-                            <span class="hub-item-label">Saúde & Checkup</span>
-                            <span class="hub-item-status">HRV & Postura</span>
+                            <span class="hub-item-label">Evolução & Performance</span>
+                            <span class="hub-item-status">Status & Ficha</span>
                         </div>
                     </div>
 
@@ -390,7 +390,7 @@ class TFitHub {
         const labels = {
             map: 'Waze Fitness',
             vision: 'Escanear Prato',
-            health: 'Ferramentas de Saúde',
+            power: 'Evolução & Performance',
             hydration: 'Controle de Hidratação',
             workouts: 'Treinos com IA',
             diet: 'Dietas com IA'
@@ -398,7 +398,7 @@ class TFitHub {
 
         window.PaymentHelper.handlePremiumAction(labels[type] || 'esta função', user, () => {
             // Checkup menu should NOT toggle the hub, it's a modal on top
-            if (type !== 'health') this.toggle();
+            if (type !== 'power') this.toggle();
             switch (type) {
                 case 'map':
                     router.navigate('/student/mapbox');
@@ -407,8 +407,8 @@ class TFitHub {
                 case 'vision':
                     this.startVision();
                     break;
-                case 'health':
-                    this.showHealthMenu();
+                case 'power':
+                    this.showPowerMenu();
                     break;
                 case 'hydration':
                     this.addWater();
@@ -472,7 +472,7 @@ class TFitHub {
         }
     }
 
-    showHealthMenu() {
+    showPowerMenu() {
         const content = `
             <div class="grid grid-2 gap-md p-md">
                 <div class="card p-md text-center hover-border-primary cursor-pointer" onclick="hub.startPosture(); UI.closeModal(); hub.toggle();">
@@ -487,7 +487,7 @@ class TFitHub {
                 </div>
             </div>
         `;
-        UI.showModal('Ferramentas de Saúde', content);
+        UI.showModal('Evolução & Performance', content);
     }
 
     // --- NEW FEATURE IMPLEMENTATIONS ---
@@ -503,7 +503,7 @@ class TFitHub {
     }
 
     async startStressTest() {
-        UI.showNotification('Checkup de Saúde', 'Iniciando sensor de HRV...', 'info');
+        UI.showNotification('Checkup de Performance', 'Iniciando sensor de HRV...', 'info');
         this.openCameraOverlay('stress');
     }
 
@@ -735,7 +735,7 @@ class TFitHub {
                     </div>
                     <div style="width: 1px; height: 40px; background: rgba(255,255,255,0.1);"></div>
                     <div>
-                        <p class="text-[10px] text-muted uppercase font-bold">Nota Saúde</p>
+                        <p class="text-[10px] text-muted uppercase font-bold">Nota Desempenho</p>
                         <p class="text-2xl font-black text-success">${score}/100</p>
                     </div>
                 </div>

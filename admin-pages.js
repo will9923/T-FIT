@@ -66,7 +66,7 @@ router.addRoute('/admin/dashboard', () => {
                 <div class="flex items-center gap-md">
                     <div class="text-2xl">🛡️</div>
                     <div>
-                        <h4 class="mb-xs">Saúde do Sistema</h4>
+                        <h4 class="mb-xs">Status do Sistema</h4>
                         <p class="text-xs text-muted mb-0">Verifique se as chaves de criptografia e o servidor Supabase estão sincronizados.</p>
                     </div>
                 </div>
@@ -149,12 +149,12 @@ router.addRoute('/admin/dashboard', () => {
                         <div style="font-size: 3rem;">🧠</div>
                         <div>
                             <h3 class="font-bold mb-xs" style="font-size: 1.5rem;">Diagnóstico Inteligente</h3>
-                            <p class="text-muted mb-0">Análise de padrões e saúde do sistema TFIT.</p>
+                            <p class="text-muted mb-0">Análise de padrões e status do sistema TFIT.</p>
                         </div>
                     </div>
                     <div class="text-right">
                         <div id="system-health-score" class="text-4xl font-black text-accent">--%</div>
-                        <div class="text-xs uppercase font-bold text-muted">Saúde do App</div>
+                        <div class="text-xs uppercase font-bold text-muted">Status do App</div>
                     </div>
                 </div>
             </div>

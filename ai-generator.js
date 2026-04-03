@@ -351,11 +351,11 @@ const AIHelper = {
             - Local e Equipamentos: ${params.location || 'academia'} com ${params.equipment || 'academia completa'}
             - Tempo Disponível: ${params.time || 60} minutos
             
-            CONTEXTO DE RECUPERAÇÃO E SAÚDE:
+            CONTEXTO FÍSICO:
             - Qualidade do Sono: ${params.sleep || params['wiz-sleep'] || 'Não informado'}
             - Nível de Estresse: ${params.stress || params['wiz-stress'] || 'Não informado'}
             - Restrições/Lesões: ${params.restrictions || params['wiz-injuries'] || 'Nenhuma'}
-            - Condições de Saúde: ${params.health || params['wiz-health'] || 'Nenhuma'}
+            - Perfil de Desempenho e Fôlego: ${params.performance || params['wiz-performance'] || 'Nenhuma'}
             
             PREFERÊNCIAS:
             - Estilos que Gostas: ${params.likedStyles || params['wiz-liked'] || 'Não informado'}
@@ -435,7 +435,7 @@ const AIHelper = {
             - Organização da Rotina: ${routine}
             - Frequência de Delivery/Comer fora: ${delivery}
             - Consumo de Álcool: ${alcohol}
-            - Medicamentos: ${meds}
+            - Limitações físicas: ${meds}
             - Suplementação Atual: ${supplements}
             
             PREFERÊNCIAS ALIMENTARES:

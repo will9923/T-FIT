@@ -992,7 +992,7 @@ window.showAddStudentModal = window.showQuickAddStudentModal = () => {
                     <option value="Emagrecimento">Emagrecimento</option>
                     <option value="Ganho de Massa">Ganho de Massa Muscular</option>
                     <option value="Condicionamento">Condicionamento Físico</option>
-                    <option value="Saúde">Saúde e Bem-estar</option>
+                    <option value="Qualidade de Vida">Qualidade de Vida e Bem-estar</option>
                 </select>
             </div>
             <div class="grid grid-2">
@@ -1249,7 +1249,7 @@ window.editStudent = (id) => {
                     <option value="Emagrecimento" ${student.goal === 'Emagrecimento' ? 'selected' : ''}>Emagrecimento</option>
                     <option value="Ganho de Massa" ${student.goal === 'Ganho de Massa' ? 'selected' : ''}>Ganho de Massa Muscular</option>
                     <option value="Condicionamento" ${student.goal === 'Condicionamento' ? 'selected' : ''}>Condicionamento Físico</option>
-                    <option value="Saúde" ${student.goal === 'Saúde' ? 'selected' : ''}>Saúde e Bem-estar</option>
+                    <option value="Qualidade de Vida" ${student.goal === 'Qualidade de Vida' ? 'selected' : ''}>Qualidade de Vida e Bem-estar</option>
                 </select>
             </div>
             <div class="grid grid-2">

@@ -250,14 +250,14 @@ function startWorkoutWizard(student) {
             content = `
                 <div class="form-group">
                     <label class="form-label">Qual é o seu objetivo?</label>
-                    <p class="text-xs text-muted mb-xs">Ex: ganhar massa, emagrecer, definir, melhorar condicionamento, força, saúde...</p>
+                    <p class="text-xs text-muted mb-xs">Ex: ganhar massa, emagrecer, definir, melhorar condicionamento, força, bem-estar...</p>
                     <select class="form-select" id="wiz-goal">
                         <option value="Ganhar massa muscular">Ganhar massa muscular</option>
                         <option value="Emagrecer">Emagrecer</option>
                         <option value="Definir">Definir</option>
                         <option value="Melhorar condicionamento">Melhorar condicionamento</option>
                         <option value="Ganhar força">Ganhar força</option>
-                        <option value="Saúde e bem-estar">Saúde e bem-estar</option>
+                        <option value="Qualidade de vida">Qualidade de vida e bem-estar</option>
                         <option value="Outro">Outro</option>
                     </select>
                 </div>
@@ -330,11 +330,11 @@ function startWorkoutWizard(student) {
                 </div>
             `;
         } else if (step === 4) {
-            title = '⚠️ Saúde e limitações';
+            title = '⚠️ Condição Física e limitações';
             content = `
                 <div class="form-group">
-                    <label class="form-label">Tem alguma lesão, dor ou problema de saúde?</label>
-                    <textarea class="form-input" id="wiz-health" rows="3" placeholder="Descreva aqui qualquer lesão, dor ou problema de saúde que você tenha, ou deixe em branco se não tiver nada...">${answers['wiz-health'] || ''}</textarea>
+                    <label class="form-label">Tem alguma lesão, dor ou limitação física severa?</label>
+                    <textarea class="form-input" id="wiz-health" rows="3" placeholder="Descreva aqui qualquer lesão, dor ou limitação que você tenha, ou deixe em branco se não tiver nada...">${answers['wiz-health'] || ''}</textarea>
                     <p class="text-xs text-muted mt-xs">Ex: Dor no joelho direito, problema na coluna lombar, hipertensão, etc.</p>
                 </div>
             `;
@@ -1267,7 +1267,7 @@ function startDietWizard(student) {
                         <option value="Ganho de massa muscular" ${answers['d-wiz-goal'] === 'Ganho de massa muscular' ? 'selected' : ''}>Ganho de massa muscular</option>
                         <option value="Definição" ${answers['d-wiz-goal'] === 'Definição' ? 'selected' : ''}>Definição</option>
                         <option value="Manutenção do peso" ${answers['d-wiz-goal'] === 'Manutenção do peso' ? 'selected' : ''}>Manutenção do peso</option>
-                        <option value="Saúde / qualidade de vida" ${answers['d-wiz-goal'] === 'Saúde / qualidade de vida' ? 'selected' : ''}>Saúde / qualidade de vida</option>
+                        <option value="Qualidade de vida" ${answers['d-wiz-goal'] === 'Qualidade de vida' ? 'selected' : ''}>Qualidade de vida</option>
                         <option value="Outro" ${answers['d-wiz-goal'] === 'Outro' ? 'selected' : ''}>Outro</option>
                     </select>
                 </div>
@@ -1309,7 +1309,7 @@ function startDietWizard(student) {
                 </div>
             `;
         } else if (step === 3) {
-            title = 'Passo 3: Saúde e Restrições';
+            title = 'Passo 3: Físico e Restrições';
             content = `
                 <div class="form-group">
                     <label class="form-label">4. Restrição alimentar?</label>
@@ -1323,9 +1323,9 @@ function startDietWizard(student) {
                     </div>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">5. Condição de saúde?</label>
+                    <label class="form-label">5. Condição física?</label>
                     <div class="grid grid-2 gap-xs">
-                        ${['Nenhuma', 'Diabetes', 'Hipotireoidismo / Hipertireoidismo', 'Hipertensão', 'Gastrite / refluxo', 'Outro'].map(c => `
+                        ${['Nenhuma', 'Sedentarismo grave', 'Fadiga crônica prévia', 'Metabolismo muito lento', 'Limitação articular', 'Outro'].map(c => `
                             <label class="flex items-center gap-sm p-sm border rounded cursor-pointer hover-bg-light">
                                 <input type="checkbox" name="d-wiz-health" value="${c}" ${(answers['d-wiz-health'] || []).includes(c) ? 'checked' : ''}>
                                 <span class="text-sm">${c}</span>
@@ -1334,7 +1334,7 @@ function startDietWizard(student) {
                     </div>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">6. Usa algum medicamento contínuo?</label>
+                    <label class="form-label">6. Restrições severas de mobilidade?</label>
                     <select class="form-select" id="d-wiz-meds" onchange="document.getElementById('d-wiz-meds-cond').style.display = this.value === 'Sim' ? 'block' : 'none'">
                         <option value="Não" ${!answers['d-wiz-meds'] || answers['d-wiz-meds'] === 'Não' ? 'selected' : ''}>Não</option>
                         <option value="Sim" ${answers['d-wiz-meds'] === 'Sim' ? 'selected' : ''}>Sim</option>

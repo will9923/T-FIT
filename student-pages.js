@@ -2179,7 +2179,7 @@ window.openAIWorkoutGenerator = () => {
                         <option value="Ganho de massa muscular">Ganho de massa muscular</option>
                         <option value="Definição muscular">Definição muscular</option>
                         <option value="Condicionamento físico">Condicionamento físico</option>
-                        <option value="Saúde / qualidade de vida">Saúde / qualidade de vida</option>
+                        <option value="Qualidade de vida">Qualidade de vida e Bem-estar</option>
                         <option value="Outro">Outro</option>
                     </select>
                 </div>
@@ -2258,7 +2258,7 @@ window.openAIWorkoutGenerator = () => {
                 </div>
     `;
         } else if (step === 4) {
-            title = 'Passo 4: Saúde e Restrições';
+            title = 'Passo 4: Performance e Desempenho';
             content = `
         <div class="form-group" >
                     <label class="form-label">10. Possui alguma lesão, dor ou limitação física?</label>
@@ -2272,14 +2272,14 @@ window.openAIWorkoutGenerator = () => {
                     </div>
                 </div>
         <div class="form-group">
-            <label class="form-label">11. Possui algum problema de saúde?</label>
-            <select class="form-select" id="wiz-health" onchange="document.getElementById('wiz-health-cond').style.display = this.value === 'Sim' ? 'block' : 'none'">
+            <label class="form-label">11. Possui alguma limitação de desempenho ou fôlego?</label>
+            <select class="form-select" id="wiz-performance" onchange="document.getElementById('wiz-perf-cond').style.display = this.value === 'Sim' ? 'block' : 'none'">
                 <option value="Não">Não</option>
                 <option value="Sim">Sim</option>
             </select>
-            <div id="wiz-health-cond" style="display: none;" class="mt-sm">
-                <label class="form-label text-xs">👉 Qual?</label>
-                <input type="text" class="form-input" id="wiz-health-desc" placeholder="Ex: Hipertensão, Diabetes...">
+            <div id="wiz-perf-cond" style="display: none;" class="mt-sm">
+                <label class="form-label text-xs">👉 Descreva brevemente:</label>
+                <input type="text" class="form-input" id="wiz-performance-desc" placeholder="Ex: Cansaço rápido, falta de fôlego...">
             </div>
         </div>
     `;
@@ -2362,8 +2362,8 @@ window.openAIWorkoutGenerator = () => {
         } else if (step === 4) {
             answers['wiz-injury'] = document.getElementById('wiz-injury').value;
             answers['wiz-injury-desc'] = document.getElementById('wiz-injury-desc').value;
-            answers['wiz-health'] = document.getElementById('wiz-health').value;
-            answers['wiz-health-desc'] = document.getElementById('wiz-health-desc').value;
+            answers['wiz-performance'] = document.getElementById('wiz-performance').value;
+            answers['wiz-performance-desc'] = document.getElementById('wiz-performance-desc').value;
         } else if (step === 5) {
             answers['wiz-sleep'] = document.getElementById('wiz-sleep').value;
             answers['wiz-stress'] = document.getElementById('wiz-stress').value;
@@ -2395,7 +2395,7 @@ window.openAIWorkoutGenerator = () => {
                 specificGoal: data['wiz-goal'],
                 level: data['wiz-experience'],
                 experienceTime: data['wiz-experience'],
-                restrictions: `${data['wiz-injury'] === 'Sim' ? data['wiz-injury-desc'] : ''} ${data['wiz-health'] === 'Sim' ? data['wiz-health-desc'] : ''} `.trim() || 'Nenhuma',
+                restrictions: `${data['wiz-injury'] === 'Sim' ? data['wiz-injury-desc'] : ''} ${data['wiz-performance'] === 'Sim' ? data['wiz-performance-desc'] : ''} `.trim() || 'Nenhuma',
                 studentName: user.name,
                 weight: parseFloat(data['wiz-weight']) || parseFloat(user.weight),
                 height: parseFloat(data['wiz-height']) || parseFloat(user.height),
@@ -2407,7 +2407,7 @@ window.openAIWorkoutGenerator = () => {
                 splits = await AIHelper.generateWeeklySplit(aiParams);
             } else {
                 splits = WorkoutBuilder.generate({
-                    focus: aiParams.specificGoal || 'Saúde',
+                    focus: aiParams.specificGoal || 'Bem-estar',
                     level: aiParams.level || 'Iniciante',
                     daysPerWeek: parseInt(aiParams.daysPerWeek) || 3,
                     equipment: data['wiz-location'] || 'Academia'
@@ -2575,7 +2575,7 @@ window.openAIDietGenerator = () => {
                         <option value="Ganho de massa muscular">Ganho de massa muscular</option>
                         <option value="Definição">Definição</option>
                         <option value="Manutenção do peso">Manutenção do peso</option>
-                        <option value="Saúde / qualidade de vida">Saúde / qualidade de vida</option>
+                        <option value="Qualidade de vida">Qualidade de vida e Bem-estar</option>
                         <option value="Outro">Outro</option>
                     </select>
                 </div>
@@ -2618,7 +2618,7 @@ window.openAIDietGenerator = () => {
                 </div>
             `;
         } else if (step === 3) {
-            title = 'Passo 3: Saúde e Restrições';
+            title = 'Passo 3: Condição Física e Restrições';
             content = `
     <div class="form-group" >
                     <label class="form-label">4. Restrição alimentar?</label>
@@ -2632,9 +2632,9 @@ window.openAIDietGenerator = () => {
                     </div>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">5. Condição de saúde?</label>
+                    <label class="form-label">5. Nível funcional e dores?</label>
                     <div class="grid grid-2 gap-xs">
-                        ${['Nenhuma', 'Diabetes', 'Hipotireoidismo / Hipertireoidismo', 'Hipertensão', 'Gastrite / refluxo', 'Outro'].map(c => `
+                        ${['Nenhuma', 'Sedentarismo grave', 'Fadiga crônica prévia', 'Metabolismo muito lento', 'Limitação articular', 'Outro'].map(c => `
                             <label class="flex items-center gap-sm p-sm border rounded cursor-pointer hover-bg-light">
                                 <input type="checkbox" name="d-wiz-health" value="${c}" ${(answers['d-wiz-health'] || []).includes(c) ? 'checked' : ''}>
                                 <span class="text-sm">${c}</span>
@@ -2643,7 +2643,7 @@ window.openAIDietGenerator = () => {
                     </div>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">6. Usa algum medicamento contínuo?</label>
+                    <label class="form-label">6. Possui alguma limitação severa de mobilidade?</label>
                     <select class="form-select" id="d-wiz-meds" onchange="document.getElementById('d-wiz-meds-cond').style.display = this.value === 'Sim' ? 'block' : 'none'">
                         <option value="Não">Não</option>
                         <option value="Sim">Sim</option>
@@ -3292,7 +3292,7 @@ window.openAutoAssessment = async () => {
                     feedback = 'Ótimo momento para intensificar os treinos cardiovasculares e controlar os macros.';
                 } else if (bmiNumber >= 30) {
                     status = 'Obesidade';
-                    feedback = 'Foco total em reeducação alimentar e exercícios diários para melhora da saúde.';
+                    feedback = 'Foco total em reeducação alimentar e exercícios diários para melhora do seu condicionamento e bem-estar.';
                 }
 
                 // Compare with last - SAFE QUERY

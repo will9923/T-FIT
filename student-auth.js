@@ -70,7 +70,7 @@ router.addRoute('/student/register', () => {
                             <option value="Hipertrofia">Hipertrofia</option>
                             <option value="Ganho de Massa">Ganho de Massa Muscular</option>
                             <option value="Condicionamento">Condicionamento Físico</option>
-                            <option value="Saúde">Saúde e Bem-estar</option>
+                            <option value="Qualidade de Vida">Qualidade de Vida e Bem-estar</option>
                         </select>
                     </div>
 
@@ -402,7 +402,7 @@ router.addRoute('/student/ai-setup', () => {
                     'Hipertrofia': 'hypertrophy',
                     'Ganho de Massa': 'gain_muscle',
                     'Condicionamento': 'endurance',
-                    'Saúde': 'wellbeing'
+                    'Qualidade de Vida': 'wellbeing'
                 };
                 const aiGoal = goalMap[goal] || 'hypertrophy';
 
