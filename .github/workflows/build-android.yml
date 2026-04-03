@@ -21,8 +21,6 @@ jobs:
       - name: Install Dependencies
         run: |
           npm install --legacy-peer-deps
-          mkdir -p www
-          echo "<html><body>TFIT</body></html>" > www/index.html
           npx cap sync android
 
       - name: Setup Java

@@ -1,6 +1,6 @@
 {
   "name": "tfit-app",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "T-FIT - Meu App Personal",
   "main": "app.js",
   "scripts": {
