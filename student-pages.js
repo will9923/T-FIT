@@ -804,16 +804,7 @@ router.addRoute('/student/dashboard', async () => {
             return;
         }
 
-        // Force strict session sync with DB with 3s timeout
-        try {
-            await Promise.race([
-                auth.refreshUser(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Dashboard Sync Timeout')), 3000))
-            ]);
-        } catch (e) {
-            console.warn('[Dashboard] Continuando sem refresh completo:', e.message);
-        }
-
+        // Profile is already synced via Realtime in app.js
         const currentUser = auth.getCurrentUser();
         if (!currentUser) throw new Error("Usuário não encontrado na sessão");
 

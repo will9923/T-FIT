@@ -10,6 +10,8 @@ class TFeedV2 {
         this.stories = [];
         this.currentUser = auth.getCurrentUser();
         this.currentView = 'home'; // home, reels, search, direct, profile
+        this.reelsViewMode = 'grid'; // grid or player
+        this.activeReelIndex = 0;
         this.isLoading = false;
         this.isInitialized = false;
         this.realtimeChannel = null;
@@ -18,6 +20,12 @@ class TFeedV2 {
         this.userSaves = new Set();
         this.followingIds = new Set();
         this.activeChat = null;
+        this.activeChatTargetId = null;
+        this.replyContext = null;
+        this.selectedMedia = null;
+        this.typingTimeout = null;
+        this.userPresenceInterval = null;
+        this.viewedStories = new Set(JSON.parse(localStorage.getItem('tf_viewed_stories') || '[]'));
 
         // Auto-init if DOM is ready
         if (document.readyState === 'complete' || document.readyState === 'interactive') {
@@ -31,15 +39,39 @@ class TFeedV2 {
         if (this.isInitialized) return;
         this.isInitialized = true;
 
-        console.log('[T-Feed V2] Initializing Core...');
+        console.log('[T-Feed V2] 🚀 Premium Social Engine Iniciado');
         window.tfeed = this;
 
         // Setup initial local state
         await this.loadInitialData();
         this.setupRealtimeSync();
+        this.setupCallListener();
+        this.startPresenceHeartbeat();
+
+        // Activity tracking
+        this.trackActivity('app_open');
 
         // Refresh periodically for stories expiry
         setInterval(() => this.cleanupExpiredStories(), 60000);
+    }
+
+    startPresenceHeartbeat() {
+        if (!this.currentUser) return;
+        const update = async (online) => {
+            try {
+                await window.supabase.from('user_status').upsert({ user_id: this.currentUser.id, is_online: online, last_seen: new Date().toISOString() });
+            } catch (e) { /* silent */ }
+        };
+        update(true);
+        this.userPresenceInterval = setInterval(() => update(true), 60000);
+        window.addEventListener('beforeunload', () => update(false));
+    }
+
+    async trackActivity(type) {
+        if (!this.currentUser) return;
+        try {
+            await window.supabase.from('user_activity').upsert({ user_id: this.currentUser.id, last_active_at: new Date().toISOString() });
+        } catch (e) { /* silent — table might not exist yet */ }
     }
 
     async loadInitialData() {
@@ -48,20 +80,35 @@ class TFeedV2 {
 
         try {
             const [postsRes, storiesRes, likesRes, savesRes, profileRes] = await Promise.all([
-                supabase.from('posts')
+                window.supabase.from('posts')
                     .select('*, profiles!user_id(name, photo, photo_url, is_verified)')
                     .order('created_at', { ascending: false })
                     .limit(30),
-                supabase.from('stories')
+                window.supabase.from('stories')
                     .select('*, profiles!user_id(name, photo, photo_url, is_verified)')
                     .gt('expires_at', new Date().toISOString())
                     .order('created_at', { ascending: true }),
-                supabase.from('likes').select('post_id').eq('user_id', this.currentUser.id),
-                supabase.from('saves').select('post_id').eq('user_id', this.currentUser.id),
-                supabase.from('profiles').select('following, followers, t_points, is_verified').eq('id', this.currentUser.id).single()
+                window.supabase.from('likes').select('post_id').eq('user_id', this.currentUser.id),
+                window.supabase.from('saves').select('post_id').eq('user_id', this.currentUser.id),
+                window.supabase.from('profiles').select('following, followers, t_points, is_verified').eq('id', this.currentUser.id).single()
             ]);
 
-            if (postsRes.data) this.posts = postsRes.data;
+            // Optimized Boost Logic: Fetch active boosts first
+            const { data: activeBoosts } = await window.supabase.from('t_boosts').select('item_id').gt('expires_at', new Date().toISOString());
+            const boostedIds = new Set(activeBoosts?.map(b => b.item_id) || []);
+
+            if (postsRes.data) {
+                this.posts = postsRes.data.map(p => ({
+                    ...p,
+                    is_boosted: boostedIds.has(p.id)
+                }));
+                // Sort: Boosted first, then by date
+                this.posts.sort((a, b) => {
+                    if (a.is_boosted && !b.is_boosted) return -1;
+                    if (!a.is_boosted && b.is_boosted) return 1;
+                    return new Date(b.created_at) - new Date(a.created_at);
+                });
+            }
             if (storiesRes.data) this.stories = this.groupStories(storiesRes.data);
             if (likesRes.data) this.userLikes = new Set(likesRes.data.map(l => l.post_id));
             if (savesRes.data) this.userSaves = new Set(savesRes.data.map(s => s.post_id));
@@ -97,15 +144,64 @@ class TFeedV2 {
     }
 
     setupRealtimeSync() {
-        this.realtimeChannel = supabase.channel('tfeed_v2_realtime')
-            // NÃO ouvimos 'posts' aqui para evitar pisca-pisca ao curtir
-            // (triggers de likes_count atualizam posts e disparavam re-render)
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => this.handleNewMessage(payload))
+        this.realtimeChannel = window.supabase.channel('tfeed_premium_v2')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (p) => this.handleNewMessage(p))
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, (p) => this.handleMessageUpdate(p))
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_status' }, (p) => this.handlePresenceChange(p))
+            .on('broadcast', { event: 'typing' }, (p) => this.handleTypingEvent(p))
             .subscribe();
     }
 
+    setupCallListener() {
+        if (!this.currentUser || !window.supabase) return;
+        
+        const channel = window.window.supabase.channel('tfeed_calls_realtime');
+        
+        channel
+            .on('postgres_changes', { 
+                event: 'INSERT', 
+                schema: 'public', 
+                table: 'calls',
+                filter: `target_id=eq.${this.currentUser.id}`
+            }, (payload) => {
+                if (payload.new.status === 'calling') {
+                    this.handleIncomingCall(payload.new);
+                }
+            })
+            .on('postgres_changes', { 
+                event: 'UPDATE', 
+                schema: 'public', 
+                table: 'calls'
+            }, (payload) => {
+                const call = payload.new;
+                // Se a chamada ativa mudou de status para encerrada ou rejeitada, fecha a tela
+                if (this.activeCall && this.activeCall.id === call.id) {
+                    if (call.status === 'ended' || call.status === 'rejected') {
+                        console.log('[Calls] Chamada finalizada remotamente.');
+                        this.endCall(true); // true = skipUpdate
+                    }
+                }
+            })
+            .subscribe();
+    }
+
+    handlePresenceChange(payload) {
+        // Atualiza silenciosamente as bolinhas de status no DOM, sem renderizar a tela toda
+        const { user_id, status } = payload.new;
+        const statusDots = document.querySelectorAll(`.status-dot[data-user-id="${user_id}"]`);
+        statusDots.forEach(dot => {
+            dot.className = `status-dot ${status === 'online' ? 'online' : 'offline'}`;
+        });
+        
+        // Se estiver no chat com essa pessoa, atualiza o cabeçalho do chat
+        if (this.activeChat === user_id) {
+            const subtitle = document.querySelector('.tf-v2-chat-subtitle');
+            if (subtitle) subtitle.innerText = status === 'online' ? 'Online agora' : 'Offline';
+        }
+    }
+
     async refreshPosts() {
-        const { data } = await supabase.from('posts').select('*, profiles!user_id(name, photo, photo_url, is_verified)').order('created_at', { ascending: false }).limit(30);
+        const { data } = await window.supabase.from('posts').select('*, profiles!user_id(name, photo, photo_url, is_verified)').order('created_at', { ascending: false }).limit(30);
         if (data) {
             this.posts = data;
             // Só re-renderiza se o usuário estiver na tela home E não tiver nada carregado ainda
@@ -163,14 +259,17 @@ class TFeedV2 {
 
         return `
             <header class="tf-v2-header">
-                ${backBtn || '<button class="tf-v2-icon-btn"><i class="bi bi-list"></i></button>'}
+                ${backBtn || `<button class="tf-v2-icon-btn" onclick="tfeed.openMainMenu()"><i class="bi bi-list" style="font-size:26px;"></i></button>`}
                 <div class="tf-v2-logo-container">
                     <div class="logo-tfit-v2"><span class="white">T-</span><span class="blue">FEED</span></div>
                     <span class="logo-social-v2">social</span>
                 </div>
-                <div class="tf-v2-header-actions">
-                    <button class="tf-v2-icon-btn" onclick="tfeed.renderView('direct')"><i class="bi bi-chat-text"></i></button>
-                    <button class="tf-v2-icon-btn"><i class="bi bi-heart"></i></button>
+                <div class="tf-v2-header-actions" style="display:flex; align-items:center; gap: 10px;">
+                    <button class="tf-v2-icon-btn" onclick="spotifyUI.toggleFullPlayer(true)" id="btn-t-music-header">
+                         <i class="bi bi-music-note-beamed" style="color:#1DB954; font-size:22px;"></i>
+                    </button>
+                    <button class="tf-v2-icon-btn" onclick="tfeed.openActivityLog()"><i class="bi bi-heart" style="font-size:22px;"></i></button>
+                    <button class="tf-v2-icon-btn" onclick="tfeed.renderView('direct')"><i class="bi bi-chat-text" style="font-size:22px;"></i></button>
                 </div>
             </header>
         `;
@@ -228,10 +327,7 @@ class TFeedV2 {
         const activeNav = document.querySelector(`.tf-v2-nav-btn[onclick*="'${view}'"]`);
         if (activeNav) activeNav.classList.add('active');
 
-        // Transição suave
-        main.style.transition = 'opacity 0.12s ease';
-        main.style.opacity = '0';
-        await new Promise(r => setTimeout(r, 60));
+        // REMOVIDO FADE-OUT (CAUSADOR DE FLICKER)
 
         switch (view) {
             case 'home':
@@ -267,7 +363,21 @@ class TFeedV2 {
     renderHomeFeed() {
         if (this.isLoading && this.posts.length === 0) return this.renderLoadingState();
 
+        const spotifyBtn = !spotifyManager.accessToken 
+            ? `<div class="p-md bg-dark border-radius-lg mb-lg flex justify-between items-center" style="background:#1DB954; color:white">
+                <div class="flex items-center gap-md">
+                    <i class="bi bi-spotify text-2xl"></i>
+                    <div>
+                        <div class="font-bold">Spotify Desconectado</div>
+                        <div class="text-xs">Conecte para música nos treinos</div>
+                    </div>
+                </div>
+                <button class="btn btn-sm btn-white" onclick="spotifyManager.login()">Conectar</button>
+               </div>`
+            : '';
+
         return `
+            ${spotifyBtn}
             <h3 class="tf-v2-section-title">Stories</h3>
             <div class="tf-v2-stories-bar">
                 ${this.renderStoriesBar()}
@@ -285,24 +395,28 @@ class TFeedV2 {
         // Find current user's stories
         const myStories = this.stories[this.currentUser.id];
         const hasMyStories = myStories && myStories.items.length > 0;
+        const isMyStoryWatched = hasMyStories && myStories.items.every(item => this.viewedStories.has(item.id));
 
         let html = `
-            <div class="tf-v2-story-item" onclick="${hasMyStories ? `tfeed.viewStories('${this.currentUser.id}')` : 'tfeed.triggerStoryUpload()'}" style="cursor: pointer; min-width: 85px;">
-                <div class="tf-v2-story-ring ${hasMyStories ? '' : 'plus'}">
+            <div class="tf-v2-story-item">
+                <div class="tf-v2-story-ring ${hasMyStories ? (isMyStoryWatched ? 'watched' : 'has-stories') : ''}" 
+                     onclick="${hasMyStories ? `tfeed.viewStories('${this.currentUser.id}')` : 'storyEditor.open()'}">
                     <img src="${this.currentUser.photo_url || this.currentUser.photo || './logo.png'}" class="tf-v2-story-avatar">
+                    <div class="tf-v2-story-plus-badge" onclick="event.stopPropagation(); storyEditor.open()">+</div>
                 </div>
                 <span class="tf-v2-story-name">Seu Story</span>
-                <input type="file" id="direct-story-input" accept="image/*,video/*" style="display: none;" onchange="tfeed.handleDirectStoryUpload(this)">
             </div>
         `;
 
         Object.entries(this.stories).forEach(([uid, data]) => {
-            if (uid === this.currentUser.id) return; // Already handled above
+            if (uid === this.currentUser.id) return; 
             const profile = data.user;
             const avatar = profile.photo_url || profile.photo || './logo.png';
+            const isWatched = data.items.every(item => this.viewedStories.has(item.id));
+            
             html += `
                 <div class="tf-v2-story-item" onclick="tfeed.viewStories('${uid}')">
-                    <div class="tf-v2-story-ring">
+                    <div class="tf-v2-story-ring ${isWatched ? 'watched' : 'has-stories'}">
                         <img src="${avatar}" class="tf-v2-story-avatar">
                     </div>
                     <span class="tf-v2-story-name">${profile.name || 'Usuário'}</span>
@@ -325,12 +439,12 @@ class TFeedV2 {
         UI.showLoading('Publicando story...');
         try {
             const fileName = `story_${Date.now()}_${file.name}`;
-            const { data, error } = await supabase.storage.from('stories_media').upload(`${this.currentUser.id}/${fileName}`, file);
+            const { data, error } = await window.supabase.storage.from('stories_media').upload(`${this.currentUser.id}/${fileName}`, file);
             if (error) throw error;
 
-            const { data: { publicUrl } } = supabase.storage.from('stories_media').getPublicUrl(`${this.currentUser.id}/${fileName}`);
+            const { data: { publicUrl } } = window.supabase.storage.from('stories_media').getPublicUrl(`${this.currentUser.id}/${fileName}`);
 
-            await supabase.from('stories').insert({
+            await window.supabase.from('stories').insert({
                 user_id: this.currentUser.id,
                 media_url: publicUrl
             });
@@ -354,6 +468,29 @@ class TFeedV2 {
         const isVerified = profile.is_verified;
         const isOwner = post.user_id === this.currentUser.id;
 
+        let musicHtml = '';
+        try {
+            if (post.caption && post.caption.trim().startsWith('{')) {
+                const metadata = JSON.parse(post.caption);
+                if (metadata && metadata.uri) {
+                    musicHtml = `
+                        <div class="px-md py-sm mb-md flex justify-between items-center" 
+                             style="background:rgba(29, 185, 84, 0.1); border:1px solid rgba(29, 185, 84, 0.2); margin: 0 12px 12px; border-radius: 12px;">
+                            <div class="flex items-center gap-sm overflow-hidden" style="flex:1">
+                                <i class="bi bi-spotify" style="color:#1DB954; font-size: 18px;"></i>
+                                <div class="text-xs text-ellipsis" style="color:rgba(255,255,255,0.9)"><b>Tocando:</b> ${metadata.music}</div>
+                            </div>
+                            <button class="btn btn-ghost btn-sm p-0 ml-md" onclick="spotifyManager.play('${metadata.uri}')">
+                                <i class="bi bi-play-circle-fill text-2xl" style="color:#1DB954"></i>
+                            </button>
+                        </div>
+                    `;
+                }
+            }
+        } catch (e) {
+            console.warn('Metadata parse error', e);
+        }
+
         return `
             <article class="tf-v2-post" data-post-id="${post.id}">
                 <div class="tf-v2-post-header">
@@ -361,7 +498,7 @@ class TFeedV2 {
                         <img src="${avatar}" class="tf-v2-post-avatar" onclick="tfeed.viewStories('${post.user_id}')" style="cursor: pointer;">
                         <div onclick="tfeed.renderViewProfile('${post.user_id}')" style="cursor: pointer;">
                             <span class="tf-v2-post-username">${name} ${isVerified ? '<i class="bi bi-patch-check-fill tf-v2-verified-badge"></i>' : ''}</span>
-                            <div class="text-xs text-muted">@${name.toLowerCase().replace(/\s+/g, '')}</div>
+                            <div class="text-xs text-muted">@${name.toLowerCase().replace(/\s+/g, '')} ${post.is_boosted ? '<span class="badge-boost ml-xs">🚀 Patrocinado</span>' : ''}</div>
                         </div>
                     </div>
                     <button class="tf-v2-icon-btn" onclick="tfeed.openPostMenu('${post.id}', '${post.user_id}')"><i class="bi bi-three-dots"></i></button>
@@ -369,7 +506,11 @@ class TFeedV2 {
 
                 <div class="tf-v2-post-media-container" ondblclick="tfeed.handlePostLike('${post.id}', true)">
                     ${post.media_type === 'video'
-                ? `<video src="${post.media_url}" class="tf-v2-post-media" loop muted playsinline onclick="this.paused ? this.play() : this.pause()"></video>`
+                ? `<video src="${post.media_url}" class="tf-v2-post-media" loop muted playsinline 
+                           onclick="tfeed.handleVideoInteraction(this, 'click')"
+                           onpointerdown="tfeed.handleVideoInteraction(this, 'press')"
+                           onpointerup="tfeed.handleVideoInteraction(this, 'release')"
+                           onpointercancel="tfeed.handleVideoInteraction(this, 'release')"></video>`
                 : `<img src="${post.media_url}" class="tf-v2-post-media" loading="lazy">`
             }
                 </div>
@@ -394,48 +535,39 @@ class TFeedV2 {
                     <i class="bi bi-star-fill"></i> <span id="likes-count-${post.id}">${post.likes_count || 0}</span> curtidas
                 </div>
 
-                <div class="tf-v2-post-caption">
-                    <strong>${name}</strong> ${post.caption || ''}
-                    <div id="comments-count-${post.id}" class="text-xs text-muted mt-sm" style="opacity: 0.6; cursor: pointer;" onclick="tfeed.openComments('${post.id}')">Ver todos os ${post.comments_count || 0} comentários</div>
+                <div class="tf-v2-post-body">
+                    ${musicHtml}
+                    <div class="tf-v2-post-caption">
+                        <strong>${name}</strong> ${post.caption && !post.caption.trim().startsWith('{') ? post.caption : ''}
+                        <div id="comments-count-${post.id}" class="text-xs text-muted mt-sm" style="opacity: 0.6; cursor: pointer;" onclick="tfeed.openComments('${post.id}')">Ver todos os ${post.comments_count || 0} comentários</div>
+                    </div>
+                    <div class="tf-v2-post-time">${this.timeAgo(post.created_at)}</div>
                 </div>
-                <div class="tf-v2-post-time">${this.timeAgo(post.created_at)}</div>
             </article>
         `;
     }
 
-    // ============================================
-    // VIEW: REELS
-    // ============================================
-
     renderReels() {
         const reels = this.posts.filter(p => p.media_type === 'video');
-        if (reels.length === 0) return `<div class="p-xl text-center text-muted">Nenhum vídeo disponível no momento.</div>`;
+        if (reels.length === 0) return `<div class="p-xl text-center text-muted">Nenhum Reels disponível.</div>`;
+
+        if (this.reelsViewMode === 'player') {
+            return this.renderReelsPlayer(reels);
+        }
 
         return `
-            <div class="tf-v2-reels-container">
-                ${reels.map(reel => `
-                    <div class="tf-v2-reel-item">
-                        <video src="${reel.media_url}" class="tf-v2-reel-video" loop playsinline autoplay muted></video>
-                        <div class="tf-v2-reel-info">
-                            <div class="flex items-center gap-sm mb-md">
-                                <img src="${reel.profiles.photo_url || './logo.png'}" style="width:32px; height:32px; border-radius:50%;">
-                                <strong>${reel.profiles.name}</strong>
-                                <button class="btn btn-sm btn-outline ml-sm" style="border-radius:20px; color:#fff; border-color:#fff;">Seguir</button>
-                            </div>
-                            <p class="text-sm">${reel.caption || ''}</p>
-                        </div>
-                        <div class="tf-v2-reel-actions">
-                            <div class="tf-v2-reel-action">
-                                <i class="bi bi-heart-fill" style="font-size:28px;"></i>
-                                <span>${reel.likes || 0}</span>
-                            </div>
-                            <div class="tf-v2-reel-action">
-                                <i class="bi bi-chat-fill" style="font-size:28px;"></i>
-                                <span>${reel.comments || 0}</span>
-                            </div>
-                            <div class="tf-v2-reel-action">
-                                <i class="bi bi-send-fill" style="font-size:28px;"></i>
-                            </div>
+            <div class="tf-v2-reels-explorer-header">
+                <div class="flex items-center gap-sm">
+                    <i class="bi bi-play-circle-fill text-cyan"></i>
+                    <h3 class="m-0 font-black">Explorar Reels</h3>
+                </div>
+            </div>
+            <div class="tf-v2-reels-grid">
+                ${reels.map((reel, idx) => `
+                    <div class="tf-v2-reels-grid-item" onclick="tfeed.openReelsPlayer(${idx})">
+                        <video src="${reel.media_url}" muted playsinline preload="metadata"></video>
+                        <div class="tf-v2-reels-grid-stats">
+                            <i class="bi bi-play-fill"></i> ${reel.likes_count || 0}
                         </div>
                     </div>
                 `).join('')}
@@ -443,9 +575,308 @@ class TFeedV2 {
         `;
     }
 
+    renderReelsPlayer(reels) {
+        return `
+            <div class="tf-v2-reels-player-container">
+                <button class="tf-v2-reels-back-btn" onclick="tfeed.reelsViewMode='grid'; tfeed.renderView('reels')">
+                    <i class="bi bi-arrow-left"></i>
+                </button>
+                <div class="tf-v2-reels-vertical-scroll" id="reels-scroller">
+                    ${reels.map((reel, idx) => `
+                        <div class="tf-v2-reel-item" id="reel-item-${idx}">
+                            <video src="${reel.media_url}" class="tf-v2-reel-video" loop playsinline 
+                                   ${idx === this.activeReelIndex ? 'autoplay' : ''} 
+                                   muted
+                                   onclick="tfeed.handleVideoInteraction(this, 'click')"
+                                   onpointerdown="tfeed.handleVideoInteraction(this, 'press')"
+                                   onpointerup="tfeed.handleVideoInteraction(this, 'release')"
+                                   onpointercancel="tfeed.handleVideoInteraction(this, 'release')"></video>
+                            
+                            <div class="tf-v2-reel-info">
+                                <div class="flex items-center gap-sm mb-md">
+                                    <img src="${reel.profiles.photo_url || './logo.png'}" style="width:32px; height:32px; border-radius:50%; border:1px solid #fff;">
+                                    <strong onclick="tfeed.renderViewProfile('${reel.user_id}')">${reel.profiles.name}</strong>
+                                    <button class="btn btn-xs btn-outline" style="border-radius:20px; color:#fff; border-color:#fff; padding: 2px 10px;">Seguir</button>
+                                </div>
+                                <p class="text-sm">${reel.caption || ''}</p>
+                            </div>
+
+                            <div class="tf-v2-reel-actions">
+                                <div class="tf-v2-reel-action" onclick="tfeed.handlePostLike('${reel.id}')">
+                                    <i class="bi bi-heart${this.userLikes.has(reel.id) ? '-fill liked' : ''}" style="${this.userLikes.has(reel.id) ? 'color:#fe2c55;' : ''}"></i>
+                                    <span>${reel.likes_count || 0}</span>
+                                </div>
+                                <div class="tf-v2-reel-action" onclick="tfeed.openComments('${reel.id}')">
+                                    <i class="bi bi-chat-fill"></i>
+                                    <span>${reel.comments_count || 0}</span>
+                                </div>
+                                <div class="tf-v2-reel-action" onclick="tfeed.sharePost('${reel.id}')">
+                                    <i class="bi bi-send-fill"></i>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    openReelsPlayer(index) {
+        this.reelsViewMode = 'player';
+        this.activeReelIndex = index;
+        this.renderView('reels');
+        
+        // Scroll to active index
+        setTimeout(() => {
+            const item = document.getElementById(`reel-item-${index}`);
+            if (item) item.scrollIntoView();
+            
+            // Observer to play/pause on scroll
+            this.setupReelsObserver();
+        }, 100);
+    }
+
+    setupReelsObserver() {
+        const scroller = document.getElementById('reels-scroller');
+        if (!scroller) return;
+
+        const options = { threshold: 0.8 };
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                const video = entry.target.querySelector('video');
+                if (entry.isIntersecting) {
+                    if (video) video.play();
+                } else {
+                    if (video) { video.pause(); video.currentTime = 0; }
+                }
+            });
+        }, options);
+
+        document.querySelectorAll('.tf-v2-reel-item').forEach(el => observer.observe(el));
+    }
+
     // ============================================
-    // VIEW: SEARCH
+    // HEADER ACTIONS: MENU & NOTIFICATIONS
     // ============================================
+
+    openMainMenu() {
+        const modalContent = `
+            <div class="p-lg" style="display: flex; flex-direction: column; gap: 10px;">
+                <button class="btn btn-ghost w-100 text-left py-md px-lg" onclick="UI.closeModal(); tfeed.renderView('profile')">
+                    <i class="bi bi-person mr-md"></i> Ver Meu Perfil
+                </button>
+                <button class="btn btn-ghost w-100 text-left py-md px-lg" onclick="UI.closeModal(); tfeed.showPointsStore('${this.currentUser.t_points || 0}')">
+                    <i class="bi bi-lightning-fill text-warning mr-md"></i> Meu Saldo T-PONTOS
+                </button>
+                <button class="btn btn-ghost w-100 text-left py-md px-lg" onclick="UI.closeModal(); tfeed.renderSavedPosts()">
+                    <i class="bi bi-bookmark mr-md"></i> Itens Salvos
+                </button>
+                <div style="border-top:1px solid var(--tf-border); margin:10px 0;"></div>
+                <button class="btn btn-ghost w-100 text-left py-md px-lg" onclick="UI.closeModal(); tfeed.openEditProfile()">
+                    <i class="bi bi-gear mr-md"></i> Configurações
+                </button>
+                <button class="btn btn-ghost w-100 text-left py-md px-lg text-danger" onclick="auth.logout()">
+                    <i class="bi bi-box-arrow-right mr-md"></i> Sair do T-FIT
+                </button>
+            </div>
+        `;
+        UI.showModal('Menu T-FEED', modalContent);
+    }
+
+    async openActivityLog() {
+        UI.showLoading('Carregando notificações...');
+        try {
+            // Fetch notifications (likes, follows, etc.)
+            const { data: notifications } = await window.supabase.from('notifications')
+                .select('*, actor:profiles!actor_id(name, photo_url, is_verified)')
+                .eq('user_id', this.currentUser.id)
+                .order('created_at', { ascending: false })
+                .limit(20);
+
+            // Fetch suggestions (users not followed yet)
+            let suggestions = [];
+            const { data: profiles } = await window.supabase.from('profiles')
+                .select('id, name, photo_url, is_verified')
+                .neq('id', this.currentUser.id)
+                .limit(30);
+            
+            if (profiles) {
+                suggestions = profiles.filter(p => !this.followingIds.has(p.id)).slice(0, 10);
+            }
+
+            UI.hideLoading();
+
+            const modalContent = `
+                <div class="p-md">
+                    <div id="activity-list" class="mb-xl" style="max-height: 400px; overflow-y: auto;">
+                        ${notifications && notifications.length > 0 ? 
+                            notifications.map(n => `
+                                <div class="flex items-center gap-md mb-lg">
+                                    <img src="${n.actor.photo_url || './logo.png'}" style="width:40px; height:40px; border-radius:50%; object-fit:cover;" onclick="UI.closeModal(); tfeed.renderView('profile', '${n.actor_id}')">
+                                    <div class="flex-1 text-sm">
+                                        <b>${n.actor.name}</b> 
+                                        ${n.type === 'like' ? 'curtiu sua publicação.' : 
+                                          n.type === 'follow' ? 'começou a te seguir.' : 
+                                          n.type === 'comment' ? 'comentou no seu post.' : 'interagiu com você.'}
+                                        <span class="text-xs text-muted ml-sm">${this.timeAgo(n.created_at)}</span>
+                                    </div>
+                                </div>
+                            `).join('') :
+                            '<p class="text-center text-muted p-xl">Nenhuma atividade recente.</p>'
+                        }
+                    </div>
+
+                    <div style="border-top: 1px solid var(--tf-border); padding-top: 15px;">
+                        <h3 class="text-sm font-black mb-lg" style="letter-spacing:1px; text-transform:uppercase; color:var(--tf-accent);">Sugestões para você</h3>
+                        <div id="suggestions-list">
+                            ${suggestions.map(p => `
+                                <div class="flex items-center justify-between mb-lg">
+                                    <div class="flex items-center gap-md" onclick="UI.closeModal(); tfeed.renderView('profile', '${p.id}')" style="cursor: pointer;">
+                                        <img src="${p.photo_url || './logo.png'}" style="width:42px; height:42px; border-radius:50%; object-fit:cover;">
+                                        <div class="flex flex-col">
+                                            <b class="text-sm">${p.name} ${p.is_verified ? '<i class="bi bi-patch-check-fill text-primary"></i>' : ''}</b>
+                                            <span class="text-[10px] text-muted">Sugestão T-FIT</span>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-xs btn-primary" style="border-radius:20px; padding: 4px 15px; font-size:10px;" 
+                                            onclick="tfeed.toggleFollow('${p.id}', false); this.innerText='Seguindo'; this.disabled=true; this.style.opacity='0.6';">Seguir</button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            UI.showModal('Atividade', modalContent);
+
+        } catch (err) {
+            UI.hideLoading();
+            console.error(err);
+            UI.showNotification('Erro', 'Não foi possível carregar as atividades.', 'error');
+        }
+    }
+
+    // ============================================
+    // VIDEO INTERACTION LOGIC (Instagram-like)
+    // ============================================
+
+    handleVideoInteraction(el, action) {
+        if (!el) return;
+
+        switch (action) {
+            case 'click':
+                if (!el._isLongPress) {
+                    el.muted = !el.muted;
+                    UI.showNotification('Áudio', el.muted ? '🔇 Som Desativado' : '🔊 Som Ativado', 'info');
+                }
+                el._isLongPress = false;
+                break;
+
+            case 'press':
+                el._isLongPress = false;
+                el._pressTimer = setTimeout(() => {
+                    if (!el.paused) {
+                        el.pause();
+                        el._isLongPress = true;
+                        el.style.transform = 'scale(0.98)';
+                        el.style.transition = '0.2s';
+                    }
+                }, 300);
+                break;
+
+            case 'release':
+                if (el._pressTimer) clearTimeout(el._pressTimer);
+                if (el._isLongPress) {
+                    el.play();
+                    el.style.transform = 'scale(1)';
+                }
+                break;
+        }
+    }
+
+    // ============================================
+    // SOCIAL ACTIONS
+    // ============================================
+
+    async handlePostLike(postId, doubleTap = false) {
+        if (!this.currentUser) return;
+        const isLiked = this.userLikes.has(postId);
+        const icon = document.getElementById(`like-icon-${postId}`);
+        const countSpan = document.getElementById(`likes-count-${postId}`);
+
+        try {
+            if (isLiked && !doubleTap) {
+                // Unlike
+                await window.supabase.from('likes').delete().eq('post_id', postId).eq('user_id', this.currentUser.id);
+                this.userLikes.delete(postId);
+                if (icon) {
+                    icon.className = 'bi bi-heart tf-v2-action-icon';
+                    icon.style.color = '#fff';
+                }
+                const newCount = Math.max(0, parseInt(countSpan.innerText) - 1);
+                if (countSpan) countSpan.innerText = newCount;
+            } else if (!isLiked) {
+                // Like
+                await window.supabase.from('likes').insert({ post_id: postId, user_id: this.currentUser.id });
+                this.userLikes.add(postId);
+                if (icon) {
+                    icon.className = 'bi bi-heart-fill liked tf-v2-action-icon';
+                    icon.style.color = '#fe2c55';
+                    icon.style.transform = 'scale(1.2)';
+                    setTimeout(() => icon.style.transform = 'scale(1)', 200);
+                }
+                const newCount = parseInt(countSpan.innerText) + 1;
+                if (countSpan) countSpan.innerText = newCount;
+
+                // 🔥 DISPARA PUSH DE CURTIDA
+                const post = this.posts.find(p => p.id === postId);
+                if (post && post.user_id !== this.currentUser.id) {
+                    if (typeof PushService !== 'undefined') {
+                        PushService.notifyLike(post.user_id, this.currentUser.name || 'Alguém', postId);
+                    }
+                    // Também insere na tabela de notificações legacy/db
+                    window.supabase.from('notifications').insert({
+                        user_id: post.user_id,
+                        actor_id: this.currentUser.id,
+                        type: 'like',
+                        post_id: postId
+                    }).then();
+                }
+                
+                this.awardPoints('Curtiu post', 1);
+            }
+        } catch (err) { console.error('[Like Error]', err); }
+    }
+
+    async toggleFollow(targetUid, isCurrentlyFollowing) {
+        if (!this.currentUser || targetUid === this.currentUser.id) return;
+
+        try {
+            if (isCurrentlyFollowing) {
+                await window.supabase.from('followers').delete().eq('follower_id', this.currentUser.id).eq('following_id', targetUid);
+                this.followingIds.delete(targetUid);
+            } else {
+                await window.supabase.from('followers').insert({ follower_id: this.currentUser.id, following_id: targetUid });
+                this.followingIds.add(targetUid);
+
+                // 🔥 DISPARA PUSH DE SEGUIDOR
+                if (typeof PushService !== 'undefined') {
+                    PushService.notifyFollow(targetUid, this.currentUser.name || 'Alguém');
+                }
+                
+                window.supabase.from('notifications').insert({
+                    user_id: targetUid,
+                    actor_id: this.currentUser.id,
+                    type: 'follow'
+                }).then();
+            }
+            
+            // Re-render profile if we are viewing it
+            if (this.currentView === 'profile') this.renderView('profile', targetUid);
+            else this.render();
+
+        } catch (err) { console.error('[Follow Error]', err); }
+    }
 
     renderSearch() {
         return `
@@ -455,11 +886,18 @@ class TFeedV2 {
                     <input type="text" placeholder="Pesquisar usuários, posts..." class="flex-1" style="background:none; border:none; color:#fff; outline:none;" oninput="tfeed.handleSearch(this.value)">
                 </div>
                 <div class="tf-v2-profile-grid" id="search-grid">
-                    ${this.posts.slice(0, 15).map(p => `
-                        <div class="tf-v2-grid-item" onclick="tfeed.openPostDetail('${p.id}')">
-                            <img src="${p.media_url}" loading="lazy">
-                        </div>
-                    `).join('')}
+                    ${this.posts.slice(0, 15).map(p => {
+                        const isVideo = p.media_type === 'video';
+                        return `
+                            <div class="tf-v2-grid-item" onclick="tfeed.openPostDetail('${p.id}')" style="position:relative;">
+                                ${isVideo 
+                                    ? `<video src="${p.media_url}#t=0.1" preload="metadata" muted playsinline style="width:100%; height:100%; object-fit:cover;"></video>
+                                       <i class="bi bi-play-fill" style="position:absolute; top:5px; right:5px; color:#fff; font-size:14px; text-shadow:0 0 5px #000;"></i>`
+                                    : `<img src="${p.media_url}" loading="lazy">`
+                                }
+                            </div>
+                        `;
+                    }).join('')}
                 </div>
             </div>
         `;
@@ -470,7 +908,7 @@ class TFeedV2 {
     // ============================================
 
     async renderProfile(uid) {
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', uid).single();
+        const { data: profile } = await window.supabase.from('profiles').select('*').eq('id', uid).single();
         if (!profile) return '';
 
         const userPosts = this.posts.filter(p => p.user_id === uid);
@@ -480,8 +918,8 @@ class TFeedV2 {
 
         // Fetch counts from followers table for accuracy
         const [fols, fwing] = await Promise.all([
-            supabase.from('followers').select('*', { count: 'exact', head: true }).eq('following_id', uid),
-            supabase.from('followers').select('*', { count: 'exact', head: true }).eq('follower_id', uid)
+            window.supabase.from('followers').select('*', { count: 'exact', head: true }).eq('following_id', uid),
+            window.supabase.from('followers').select('*', { count: 'exact', head: true }).eq('follower_id', uid)
         ]);
 
         return `
@@ -547,13 +985,20 @@ class TFeedV2 {
 
                 <div class="tf-v2-profile-grid" id="profile-posts-grid">
                     ${userPosts.length > 0
-                ? userPosts.map(p => `
-                            <div class="tf-v2-grid-item" onclick="tfeed.renderView('post_detail', '${p.id}')">
-                                <img src="${p.media_url}" loading="lazy">
-                            </div>
-                        `).join('')
-                : `<div class="col-span-3 p-xl text-center text-muted">Nenhuma foto publicada ainda.</div>`
-            }
+                        ? userPosts.map(p => {
+                            const isVideo = p.media_type === 'video';
+                            return `
+                                <div class="tf-v2-grid-item" onclick="tfeed.renderView('post_detail', '${p.id}')" style="position:relative;">
+                                    ${isVideo 
+                                        ? `<video src="${p.media_url}#t=0.1" preload="metadata" muted playsinline style="width:100%; height:100%; object-fit:cover;"></video>
+                                           <i class="bi bi-play-fill" style="position:absolute; top:5px; right:5px; color:#fff; font-size:14px; text-shadow:0 0 5px #000;"></i>`
+                                        : `<img src="${p.media_url}" loading="lazy">`
+                                    }
+                                </div>
+                            `;
+                        }).join('')
+                        : `<div class="col-span-3 p-xl text-center text-muted">Nenhuma foto publicada ainda.</div>`
+                    }
                 </div>
             </div>
         `;
@@ -580,7 +1025,7 @@ class TFeedV2 {
         const existingContent = main.innerHTML;
 
         try {
-            const { data: participations } = await supabase.from('conversation_participants')
+            const { data: participations } = await window.supabase.from('conversation_participants')
                 .select('conversation_id')
                 .eq('user_id', this.currentUser.id);
 
@@ -602,7 +1047,7 @@ class TFeedV2 {
                 return;
             }
 
-            const { data: conversations } = await supabase.from('conversation_participants')
+            const { data: conversations } = await window.supabase.from('conversation_participants')
                 .select('conversation_id, user_id, profiles(name, photo, photo_url, is_verified)')
                 .in('conversation_id', convIds)
                 .neq('user_id', this.currentUser.id);
@@ -647,7 +1092,7 @@ class TFeedV2 {
     async searchChatUsers(query) {
         if (!query || query.length < 2) return;
         try {
-            const { data: users } = await supabase.from('profiles')
+            const { data: users } = await window.supabase.from('profiles')
                 .select('id, name, photo_url, photo, is_verified')
                 .ilike('name', `%${query}%`)
                 .neq('id', this.currentUser.id)
@@ -673,79 +1118,121 @@ class TFeedV2 {
     }
 
     async openDirectChat(targetId) {
+        if (!this.currentUser || !targetId) return;
         UI.showLoading('Iniciando chat...');
         try {
-            // Find existing conversation
-            const { data: myConvs } = await supabase.from('conversation_participants').select('conversation_id').eq('user_id', this.currentUser.id);
-            const { data: theirConvs } = await supabase.from('conversation_participants').select('conversation_id').eq('user_id', targetId);
+            const { data: myConvs, error: e1 } = await window.supabase.from('conversation_participants').select('conversation_id').eq('user_id', this.currentUser.id);
+            const { data: theirConvs, error: e2 } = await window.supabase.from('conversation_participants').select('conversation_id').eq('user_id', targetId);
+            if (e1) throw e1;
+            if (e2) throw e2;
 
             const myConvIds = myConvs?.map(c => c.conversation_id) || [];
-            const commonConv = theirConvs?.find(c => myConvIds.includes(c.conversation_id));
-
-            let conversationId = commonConv?.conversation_id;
+            let conversationId = theirConvs?.find(c => myConvIds.includes(c.conversation_id))?.conversation_id;
 
             if (!conversationId) {
-                // Create new conversation
-                const { data: newConv, error: convErr } = await supabase.from('conversations').insert({}).select().single();
-                if (convErr) throw convErr;
+                const { data: newConv, error: ce } = await window.supabase.from('conversations').insert([{ last_message_at: new Date().toISOString() }]).select().single();
+                if (ce) throw ce;
                 conversationId = newConv.id;
-
-                await supabase.from('conversation_participants').insert([
+                const { error: pe } = await window.supabase.from('conversation_participants').insert([
                     { conversation_id: conversationId, user_id: this.currentUser.id },
                     { conversation_id: conversationId, user_id: targetId }
                 ]);
+                if (pe) throw pe;
             }
 
-            this.openChatRoom(conversationId, targetId);
             UI.hideLoading();
+            this.openChatRoom(conversationId, targetId);
         } catch (err) {
             UI.hideLoading();
-            console.error(err);
+            console.error('[DM Error]', err);
             UI.showNotification('Erro', 'Não foi possível iniciar o chat.', 'error');
         }
     }
 
     async openChatRoom(conversationId, targetId) {
+        if (!conversationId || !targetId) return;
         this.activeChat = conversationId;
+        this.activeChatTargetId = targetId;
+        window.tfeedActiveChat = true;
+        window.ignoreFeedRefresh = true;
+
         const main = document.getElementById('tfeed-v2-content');
         if (!main) return;
 
         try {
-            const { data: targetProfile } = await supabase.from('profiles').select('name, photo_url, photo').eq('id', targetId).single();
+            const [profileRes, statusRes] = await Promise.all([
+                window.supabase.from('profiles').select('name, photo_url, photo, is_verified').eq('id', targetId).maybeSingle(),
+                window.supabase.from('user_status').select('is_online, last_seen').eq('user_id', targetId).maybeSingle()
+            ]);
+
+            const p = profileRes.data || { name: 'Usuário' };
+            const s = statusRes.data || { is_online: false };
+            const avatar = p.photo_url || p.photo || './logo.png';
+            const lastTime = s.last_seen ? new Date(s.last_seen).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
+            const statusTxt = s.is_online ? '<span style="color:#22c55e">Online agora</span>' : (lastTime ? 'Visto às ' + lastTime : 'Offline');
 
             main.innerHTML = `
-                <div class="tf-v2-chat-container">
+                <div class="tf-v2-chat-room">
                     <div class="tf-v2-chat-header">
-                        <i class="bi bi-arrow-left tf-v2-chat-back" onclick="tfeed.closeActiveChat()"></i>
-                        <img src="${targetProfile?.photo_url || targetProfile?.photo || './logo.png'}" style="width: 32px; height: 32px; border-radius: 50%;">
-                        <b id="chat-target-name">${targetProfile?.name || 'Carregando...'}</b>
-                    </div>
-                    <div id="chat-messages" class="tf-v2-chat-messages"></div>
-                    <div class="tf-v2-chat-input-area">
-                        <div class="tf-v2-chat-input-wrapper">
-                            <input type="text" id="chat-msg-input" class="tf-v2-chat-input" placeholder="Enviar mensagem..."
-                                   onkeypress="if(event.key==='Enter') tfeed.sendMessageDirect('${conversationId}', '${targetId}')">
+                        <div class="flex items-center gap-md">
+                            <i class="bi bi-arrow-left tf-v2-chat-back" onclick="tfeed.closeActiveChat()"></i>
+                            <div class="relative" onclick="tfeed.renderView('profile', '${targetId}')" style="cursor:pointer">
+                                <img src="${avatar}" class="tf-v2-chat-avatar">
+                                ${s.is_online ? '<div style="position:absolute;bottom:0;right:0;width:10px;height:10px;background:#22c55e;border-radius:50%;border:2px solid #000"></div>' : ''}
+                            </div>
+                            <div class="flex flex-col" style="cursor:pointer">
+                                <b class="text-sm">${p.name} ${p.is_verified ? '<i class="bi bi-patch-check-fill tf-v2-verified-badge"></i>' : ''}</b>
+                                <span class="text-[10px] text-muted" id="chat-header-status">${statusTxt}</span>
+                            </div>
+                            <div class="flex ml-auto gap-lg mr-sm">
+                                <i class="bi bi-telephone text-xl cursor-pointer" onclick="tfeed.initiateCall('${targetId}', 'audio')"></i>
+                                <i class="bi bi-camera-video text-xl cursor-pointer" onclick="tfeed.initiateCall('${targetId}', 'video')"></i>
+                            </div>
                         </div>
-                        <button class="btn btn-sm btn-primary" onclick="tfeed.sendMessageDirect('${conversationId}', '${targetId}')" style="border-radius: 20px;">Enviar</button>
+                    </div>
+                    <div id="chat-messages" class="tf-v2-chat-messages">
+                        <div class="text-center p-xl opacity-30"><div class="spinner-border spinner-border-sm"></div></div>
+                    </div>
+                    <div id="typing-indicator-container"></div>
+                    <div id="reply-context-bar"></div>
+                    <div class="tf-v2-chat-input-area">
+                        <div class="tf-v2-input-main-wrap">
+                            <label class="tf-v2-input-camera cursor-pointer" for="chat-media-upload">
+                                <i class="bi bi-camera-fill"></i>
+                                <input type="file" id="chat-media-upload" class="hidden" accept="image/*,video/*,audio/*" onchange="tfeed.handleMediaSelect(this)">
+                            </label>
+                            <input type="text" id="chat-msg-input" class="tf-v2-chat-input" placeholder="Mensagem..."
+                                   onkeypress="tfeed.handleChatKeyPress(event,'${conversationId}','${targetId}')"
+                                   oninput="tfeed.handleChatInput(this.value,'${conversationId}')">
+                            <div class="tf-v2-input-utils" id="chat-input-utils">
+                                <i class="bi bi-image text-lg cursor-pointer" onclick="document.getElementById('chat-media-upload').click()"></i>
+                            </div>
+                            <button type="button" class="tf-v2-input-send-btn hidden" id="chat-send-btn" onclick="tfeed.sendMessageDirect('${conversationId}','${targetId}')">Enviar</button>
+                        </div>
                     </div>
                 </div>
             `;
-
             await this.loadMessages(conversationId);
-        } catch (err) { console.error(err); }
+        } catch (err) {
+            console.error('[Chat] Open Error:', err);
+            UI.showNotification('Erro', 'Não foi possível abrir a conversa.', 'error');
+            this.closeActiveChat();
+        }
     }
 
     closeActiveChat() {
         this.activeChat = null;
+        this.activeChatTargetId = null;
+        window.tfeedActiveChat = false;
+        window.ignoreFeedRefresh = false;
         this.renderView('direct');
     }
 
     async loadMessages(conversationId) {
         try {
-            const { data: messages } = await supabase.from('messages')
-                .select('*')
-                .eq('conversation_id', conversationId)
-                .order('created_at', { ascending: true });
+            const { data: messages } = await window.supabase.from('messages')
+                .select('*').eq('conversation_id', conversationId)
+                .order('created_at', { ascending: true }).limit(60);
 
             const container = document.getElementById('chat-messages');
             if (!container) return;
@@ -755,83 +1242,231 @@ class TFeedV2 {
                 return;
             }
 
-            container.innerHTML = messages.map(m => `
-                <div class="tf-v2-message ${m.sender_id === this.currentUser.id ? 'sent' : 'received'}">
-                    ${m.content}
-                </div>
-            `).join('');
-
+            container.innerHTML = messages.map(m => this.renderMsgHTML(m)).join('');
             container.scrollTop = container.scrollHeight;
-        } catch (err) { console.error(err); }
+
+            const unseen = messages.filter(m => !m.seen && m.sender_id !== this.currentUser.id);
+            if (unseen.length) window.supabase.from('messages').update({ seen: true }).in('id', unseen.map(m => m.id)).then();
+        } catch (err) { console.error('[Chat] Load Error:', err); }
+    }
+
+    renderMsgHTML(m) {
+        const isSent = m.sender_id === this.currentUser.id;
+        const meta = (typeof m.metadata === 'string') ? JSON.parse(m.metadata || '{}') : (m.metadata || {});
+        let replyHtml = meta.reply_to ? `<div class="reply-preview"><b>${meta.reply_to.name}:</b> ${meta.reply_to.text}</div>` : '';
+        let mediaHtml = '';
+        if (meta.media) {
+            if (meta.media.type === 'image') mediaHtml = `<div class="tf-v2-chat-media"><img src="${meta.media.url}"></div>`;
+            else if (meta.media.type === 'video') mediaHtml = `<div class="tf-v2-chat-media"><video src="${meta.media.url}" controls></video></div>`;
+            else mediaHtml = `<audio src="${meta.media.url}" controls class="w-full"></audio>`;
+        }
+        let reactHtml = '';
+        if (meta.reactions) {
+            const r = Object.entries(meta.reactions).map(([e, u]) => `<span>${e}${u.length > 1 ? ' ' + u.length : ''}</span>`).join('');
+            if (r) reactHtml = `<div class="msg-reactions">${r}</div>`;
+        }
+        return `<div class="msg-wrapper ${isSent ? 'sent' : 'received'}" id="msg-${m.id}" ondblclick="tfeed.reactToMessage('${m.id}','❤️')" oncontextmenu="event.preventDefault();tfeed.setReplyContext('${m.id}')">${replyHtml}${mediaHtml}<div class="tf-v2-message ${isSent ? 'sent' : 'received'}" style="position:relative">${m.content || ''}${isSent ? `<span style="font-size:8px;opacity:.5;position:absolute;bottom:2px;right:6px">${m.seen ? '✔✔' : '✔'}</span>` : ''}</div>${reactHtml}</div>`;
+    }
+
+    scrollToMessage(id) {
+        const el = document.getElementById(`msg-${id}`);
+        if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.outline = '2px solid #3797f0'; setTimeout(() => el.style.outline = '', 2000); }
+    }
+
+    handleChatKeyPress(e, convId, targetId) {
+        if (e.key === 'Enter') { e.preventDefault(); this.sendMessageDirect(convId, targetId); }
+    }
+
+    handleChatInput(val, convId) {
+        this.toggleSendBtn(val);
+        if (!this.realtimeChannel) return;
+        this.realtimeChannel.send({ type: 'broadcast', event: 'typing', payload: { user_id: this.currentUser.id, conversation_id: convId, is_typing: val.length > 0 } });
+        if (this.typingTimeout) clearTimeout(this.typingTimeout);
+        if (val.length > 0) this.typingTimeout = setTimeout(() => { this.realtimeChannel.send({ type: 'broadcast', event: 'typing', payload: { user_id: this.currentUser.id, conversation_id: convId, is_typing: false } }); }, 2500);
+    }
+
+    toggleSendBtn(val) {
+        const btn = document.getElementById('chat-send-btn'), utils = document.getElementById('chat-input-utils');
+        if (!btn) return;
+        if ((val || '').trim().length > 0) { btn.classList.remove('hidden'); if (utils) utils.classList.add('hidden'); }
+        else { btn.classList.add('hidden'); if (utils) utils.classList.remove('hidden'); }
+    }
+
+    handleTypingEvent(p) {
+        if (!p?.payload) return;
+        const { conversation_id, user_id, is_typing } = p.payload;
+        if (conversation_id !== this.activeChat || user_id === this.currentUser.id) return;
+        const el = document.getElementById('typing-indicator-container');
+        if (el) el.innerHTML = is_typing ? `<div class="typing-indicator"><div class="typing-dots"><div></div><div></div><div></div></div><span>digitando...</span></div>` : '';
+    }
+
+    handlePresenceChange(p) {
+        if (!p?.new || p.new.user_id !== this.activeChatTargetId) return;
+        const el = document.getElementById('chat-header-status');
+        if (el) el.innerHTML = p.new.is_online ? '<span style="color:#22c55e">Online agora</span>' : 'Offline';
     }
 
     async sendMessageDirect(conversationId, targetId) {
         const input = document.getElementById('chat-msg-input');
         const text = input?.value?.trim();
-        if (!text) return;
-
-        // Limpa input imediatamente
+        if (!text && !this.selectedMedia) return;
         input.value = '';
+        this.toggleSendBtn('');
 
-        // Adiciona o balão na tela AGORA sem recarregar tudo (zero pisca-pisca)
+        const meta = {};
+        if (this.replyContext) { meta.reply_to = this.replyContext; this.replyContext = null; const rb = document.getElementById('reply-context-bar'); if (rb) rb.innerHTML = ''; }
+        if (this.selectedMedia) { meta.media = this.selectedMedia; this.selectedMedia = null; }
+
+        const msgData = { conversation_id: conversationId, sender_id: this.currentUser.id, content: text || '', metadata: meta };
+
+        // Optimistic UI
         const container = document.getElementById('chat-messages');
         if (container) {
-            const bubble = document.createElement('div');
-            bubble.className = 'tf-v2-message sent';
-            bubble.style.cssText = 'opacity:0; transition: opacity 0.2s;';
-            bubble.textContent = text;
-            container.appendChild(bubble);
+            const el = document.createElement('div');
+            el.innerHTML = this.renderMsgHTML({ ...msgData, id: 'tmp_' + Date.now(), created_at: new Date().toISOString() });
+            if (el.firstElementChild) container.appendChild(el.firstElementChild);
             container.scrollTop = container.scrollHeight;
-            requestAnimationFrame(() => { bubble.style.opacity = '1'; });
         }
 
         try {
-            const finalContent = text;
-            const { error: rpcErr } = await supabase.rpc('send_premium_message', {
-                p_conv_id: conversationId,
-                p_sender_id: this.currentUser.id,
-                p_type: 'text',
-                p_content: finalContent,
-                p_media_url: null
-            });
-
-            if (rpcErr) {
-                // Fallback direto se RPC falhar
-                const { error: fallbackErr } = await supabase.from('messages').insert({
-                    conversation_id: conversationId,
-                    sender_id: this.currentUser.id,
-                    content: finalContent,
-                    type: 'text'
-                });
-                if (fallbackErr) throw fallbackErr;
+            await window.supabase.from('messages').insert([msgData]);
+            
+            // 🔥 DISPARA NOTIFICAÇÃO PUSH (NOVO)
+            if (typeof PushService !== 'undefined') {
+                PushService.notifyMessage(targetId, this.currentUser.name || 'Alguém', text || 'Enviou uma mídia', conversationId);
             }
-            // NÃO chama loadMessages aqui — o balão já está na tela!
-        } catch (err) {
-            console.error(err);
-            UI.showNotification('Erro', 'Mensagem não enviada.', 'error');
+
+            window.supabase.from('notifications').insert({ user_id: targetId, actor_id: this.currentUser.id, type: 'message', content: text || '📸 Mídia' }).then();
+            window.supabase.from('conversations').update({ last_message_at: new Date().toISOString() }).eq('id', conversationId).then();
+        } catch (err) { console.error('[DM Send]', err); }
+    }
+
+    async handleNewMessage(payload) {
+        if (!payload?.new) return;
+        if (payload.new.sender_id === this.currentUser?.id) return;
+        if (this.activeChat === payload.new.conversation_id) {
+            const container = document.getElementById('chat-messages');
+            if (container) {
+                const el = document.createElement('div');
+                el.innerHTML = this.renderMsgHTML(payload.new);
+                if (el.firstElementChild) container.appendChild(el.firstElementChild);
+                container.scrollTop = container.scrollHeight;
+                if (window.navigator.vibrate) window.navigator.vibrate(80);
+            }
+        } else if (this.currentView === 'direct' && !this.activeChat) {
+            this.renderDirect();
         }
     }
 
-    handleNewMessage(payload) {
-        // Ignora eco das próprias mensagens (evita pisca-pisca)
-        if (payload.new?.sender_id === this.currentUser?.id) return;
+    handleMessageUpdate(payload) {
+        if (!payload?.new?.id) return;
+        const el = document.getElementById(`msg-${payload.new.id}`);
+        if (el) { const d = document.createElement('div'); d.innerHTML = this.renderMsgHTML(payload.new); if (d.firstElementChild) el.replaceWith(d.firstElementChild); }
+    }
 
-        if (this.activeChat === payload.new?.conversation_id) {
-            // Adiciona o balão do outro usuário sem recarregar tudo
-            const container = document.getElementById('chat-messages');
-            if (container) {
-                const bubble = document.createElement('div');
-                bubble.className = 'tf-v2-message received';
-                bubble.style.cssText = 'opacity:0; transition: opacity 0.2s;';
-                bubble.textContent = payload.new.content || '';
-                container.appendChild(bubble);
-                container.scrollTop = container.scrollHeight;
-                requestAnimationFrame(() => { bubble.style.opacity = '1'; });
-            }
-        } else if (this.currentView === 'direct' && !this.activeChat) {
-            // Só atualiza a lista se não há chat aberto
-            this.renderDirect();
+    async handleMediaSelect(input) {
+        const file = input.files[0]; if (!file) return;
+        UI.showLoading('Subindo mídia...');
+        try {
+            const ext = file.name.split('.').pop();
+            const path = `${this.currentUser.id}/${Date.now()}.${ext}`;
+            const { error } = await window.supabase.storage.from('chat-media').upload(path, file);
+            if (error) throw error;
+            const { data: { publicUrl } } = window.supabase.storage.from('chat-media').getPublicUrl(path);
+            this.selectedMedia = { type: file.type.startsWith('image') ? 'image' : (file.type.startsWith('video') ? 'video' : 'audio'), url: publicUrl };
+            UI.hideLoading();
+            UI.showNotification('Mídia Pronta', 'Clique Enviar para compartilhar.', 'success');
+        } catch (err) { UI.hideLoading(); UI.showNotification('Erro', 'Falha no upload.', 'error'); }
+    }
+
+    async reactToMessage(msgId, emoji) {
+        try {
+            const { data: msg } = await window.supabase.from('messages').select('metadata').eq('id', msgId).maybeSingle();
+            if (!msg) return;
+            const meta = msg.metadata || {};
+            if (!meta.reactions) meta.reactions = {};
+            if (!meta.reactions[emoji]) meta.reactions[emoji] = [];
+            const idx = meta.reactions[emoji].indexOf(this.currentUser.id);
+            if (idx > -1) meta.reactions[emoji].splice(idx, 1); else meta.reactions[emoji].push(this.currentUser.id);
+            await window.supabase.from('messages').update({ metadata: meta }).eq('id', msgId);
+        } catch (e) { console.error(e); }
+    }
+
+    async setReplyContext(msgId) {
+        try {
+            const { data: msg } = await window.supabase.from('messages').select('content, profiles(name)').eq('id', msgId).maybeSingle();
+            if (!msg) return;
+            this.replyContext = { id: msgId, text: (msg.content || '').substring(0, 50), name: msg.profiles?.name || 'Usuário' };
+            const rb = document.getElementById('reply-context-bar');
+            if (rb) rb.innerHTML = `<div style="padding:6px 12px;background:rgba(255,255,255,.05);border-left:3px solid #3797f0;display:flex;justify-content:space-between;align-items:center;font-size:11px"><div><b style="opacity:.6">Respondendo a ${this.replyContext.name}</b><br><span>${this.replyContext.text}</span></div><i class="bi bi-x" style="cursor:pointer" onclick="tfeed.replyContext=null;this.parentElement.remove()"></i></div>`;
+        } catch (e) { console.error(e); }
+    }
+
+    // CALLS (WebRTC Signaling)
+    async initiateCall(targetId, type) {
+        if (!targetId) return;
+        UI.showLoading('Chamando...');
+        try {
+            const { data: call } = await window.supabase.from('calls').insert({ sender_id: this.currentUser.id, target_id: targetId, type: type, status: 'calling' }).select().single();
+            this.activeCall = call;
+            const { data: tp } = await window.supabase.from('profiles').select('name, photo_url, photo').eq('id', targetId).maybeSingle();
+            UI.hideLoading();
+            this.showCallScreen('outgoing', { name: tp?.name || 'Usuário', photo: tp?.photo_url || tp?.photo || '' });
+        } catch (err) { UI.hideLoading(); console.error(err); }
+    }
+
+    handleIncomingCall(call) {
+        this.activeCall = call;
+        window.supabase.from('profiles').select('name, photo_url, photo').eq('id', call.sender_id).maybeSingle().then(({ data: tp }) => {
+            this.showCallScreen('incoming', { name: tp?.name || 'Chamando...', photo: tp?.photo_url || tp?.photo || '' });
+            try { const a = new Audio('https://assets.mixkit.co/sfx/preview/mixkit-waiting-ringtone-1354.mp3'); a.loop = true; a.play(); this._callAudio = a; } catch (e) {}
+        });
+    }
+
+    showCallScreen(direction, peer) {
+        const existing = document.getElementById('call-screen'); if (existing) existing.remove();
+        const div = document.createElement('div'); div.className = 'tf-v2-call-screen'; div.id = 'call-screen';
+        const avatarHTML = peer.photo ? `<img src="${peer.photo}" class="call-avatar">` : `<div class="call-avatar" style="background:#3797f0;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:900">${(peer.name||'?')[0]}</div>`;
+        div.innerHTML = `<div class="call-avatar-wrap"><div class="call-pulse"></div>${avatarHTML}</div><h2 style="font-size:22px;font-weight:700;margin:0">${peer.name}</h2><p style="opacity:.6;margin:8px 0 0">${direction === 'incoming' ? (this.activeCall?.type === 'video' ? 'Chamada de vídeo' : 'Chamada de voz') : 'Chamando...'}</p><div class="call-actions">${direction === 'incoming' ? `<button class="call-btn accept" onclick="tfeed.answerCall()"><i class="bi bi-telephone-fill"></i></button><button class="call-btn reject" onclick="tfeed.endCall()"><i class="bi bi-telephone-x-fill"></i></button>` : `<button class="call-btn reject" onclick="tfeed.endCall()"><i class="bi bi-telephone-x-fill"></i></button>`}</div>`;
+        document.body.appendChild(div);
+    }
+
+    async answerCall() {
+        if (this._callAudio) this._callAudio.pause();
+        if (this.activeCall) await window.supabase.from('calls').update({ status: 'accepted' }).eq('id', this.activeCall.id).catch(() => {});
+        const screen = document.getElementById('call-screen');
+        if (screen) screen.innerHTML = `<div class="video-call-wrap"><video id="remote-video" autoplay playsinline></video><video id="local-video" autoplay playsinline muted></video><div style="position:absolute;bottom:40px;left:0;right:0;display:flex;justify-content:center"><button class="call-btn reject" onclick="tfeed.endCall()"><i class="bi bi-telephone-x-fill"></i></button></div></div>`;
+        this.startWebRTC();
+    }
+
+    async endCall(skipUpdate = false) {
+        if (this._callAudio) {
+            try { this._callAudio.pause(); } catch (e) {}
         }
+        
+        if (this.activeCall && !skipUpdate) {
+            await window.window.supabase.from('calls').update({ status: 'ended' }).eq('id', this.activeCall.id).catch(() => {});
+        }
+        
+        const s = document.getElementById('call-screen'); 
+        if (s) s.remove();
+        
+        if (this._localStream) {
+            this._localStream.getTracks().forEach(t => t.stop());
+            this._localStream = null;
+        }
+
+        this.activeCall = null;
+        console.log('[Calls] Chamada encerrada.');
+    }
+
+    async startWebRTC() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: this.activeCall?.type === 'video', audio: true });
+            this._localStream = stream;
+            const local = document.getElementById('local-video');
+            if (local) local.srcObject = stream;
+        } catch (e) { console.warn('[WebRTC] Acesso negado:', e.message); }
     }
 
     renderViewProfile(uid) {
@@ -865,10 +1500,10 @@ class TFeedV2 {
         // Salva no banco em segundo plano (sem bloquear a UI)
         try {
             if (liked && !doubleTap) {
-                const { error } = await supabase.from('likes').delete().eq('post_id', postId).eq('user_id', this.currentUser.id);
+                const { error } = await window.supabase.from('likes').delete().eq('post_id', postId).eq('user_id', this.currentUser.id);
                 if (error) throw error;
             } else if (!liked) {
-                const { error } = await supabase.from('likes').insert({ post_id: postId, user_id: this.currentUser.id });
+                const { error } = await window.supabase.from('likes').insert({ post_id: postId, user_id: this.currentUser.id });
                 if (error) throw error;
                 this.awardPoints('Curtiu post', 1);
             }
@@ -899,7 +1534,7 @@ class TFeedV2 {
                 followBtn.className = 'tf-v2-btn-primary';
                 followBtn.setAttribute('onclick', `tfeed.toggleFollow('${targetUid}', false)`);
             } else {
-                followBtn.textContent = 'Seguindo';
+                followBtn.textContent = 'Deixar de seguir';
                 followBtn.className = 'tf-v2-btn-secondary';
                 followBtn.setAttribute('onclick', `tfeed.toggleFollow('${targetUid}', true)`);
             }
@@ -907,11 +1542,11 @@ class TFeedV2 {
 
         try {
             if (isFollowing) {
-                const { error } = await supabase.from('followers').delete().eq('follower_id', this.currentUser.id).eq('following_id', targetUid);
+                const { error } = await window.supabase.from('followers').delete().eq('follower_id', this.currentUser.id).eq('following_id', targetUid);
                 if (error) throw error;
                 this.followingIds.delete(targetUid);
             } else {
-                const { error } = await supabase.from('followers').insert({ follower_id: this.currentUser.id, following_id: targetUid });
+                const { error } = await window.supabase.from('followers').insert({ follower_id: this.currentUser.id, following_id: targetUid });
                 if (error) throw error;
                 this.followingIds.add(targetUid);
                 this.awardPoints('Seguiu alguém', 1);
@@ -928,7 +1563,7 @@ class TFeedV2 {
             const user = auth.getCurrentUser();
             if (!user) return;
 
-            const { data, error } = await supabase.rpc('add_tpoints', {
+            const { data, error } = await window.supabase.rpc('add_tpoints', {
                 user_id_param: user.id,
                 amount_param: amount
             });
@@ -939,7 +1574,7 @@ class TFeedV2 {
             // Fallback: direct update if RPC fails
             const u = auth.getCurrentUser();
             const curr = Number(u.t_points) || 0;
-            await supabase.from('profiles').update({ t_points: curr + amount }).eq('id', u.id);
+            await window.supabase.from('profiles').update({ t_points: curr + amount }).eq('id', u.id);
             u.t_points = curr + amount;
         }
     }
@@ -979,7 +1614,7 @@ class TFeedV2 {
                     <i class="bi bi-grid-3x3-gap" style="font-size: 32px; color: var(--tf-accent);"></i>
                     <div class="mt-sm font-bold">Publicação</div>
                 </div>
-                <div class="card p-md text-center bg-black border-none hover-glow" onclick="UI.closeModal(); tfeed.triggerStoryUpload()" style="cursor:pointer; border: 1px solid var(--tf-border);">
+                <div class="card p-md text-center bg-black border-none hover-glow" onclick="UI.closeModal(); storyEditor.open()" style="cursor:pointer; border: 1px solid var(--tf-border);">
                     <i class="bi bi-plus-circle" style="font-size: 32px; color: var(--tf-accent);"></i>
                     <div class="mt-sm font-bold">Story</div>
                 </div>
@@ -1016,12 +1651,12 @@ class TFeedV2 {
         UI.showLoading('Fazendo upload...');
         try {
             const fileName = `post_${Date.now()}.${file.name.split('.').pop()}`;
-            const { data: up, error: upErr } = await supabase.storage.from('posts_media').upload(`${this.currentUser.id}/${fileName}`, file);
+            const { data: up, error: upErr } = await window.supabase.storage.from('posts_media').upload(`${this.currentUser.id}/${fileName}`, file);
             if (upErr) throw upErr;
 
-            const { data: { publicUrl } } = supabase.storage.from('posts_media').getPublicUrl(`${this.currentUser.id}/${fileName}`);
+            const { data: { publicUrl } } = window.supabase.storage.from('posts_media').getPublicUrl(`${this.currentUser.id}/${fileName}`);
 
-            await supabase.from('posts').insert({
+            await window.supabase.from('posts').insert({
                 user_id: this.currentUser.id,
                 media_url: publicUrl,
                 media_type: file.type.startsWith('video') ? 'video' : 'image',
@@ -1076,12 +1711,12 @@ class TFeedV2 {
 
             const fileName = `post_${Date.now()}.jpg`;
 
-            const { data: up, error: upErr } = await supabase.storage.from('posts_media').upload(`${this.currentUser.id}/${fileName}`, file);
+            const { data: up, error: upErr } = await window.supabase.storage.from('posts_media').upload(`${this.currentUser.id}/${fileName}`, file);
             if (upErr) throw upErr;
 
-            const { data: { publicUrl } } = supabase.storage.from('posts_media').getPublicUrl(`${this.currentUser.id}/${fileName}`);
+            const { data: { publicUrl } } = window.supabase.storage.from('posts_media').getPublicUrl(`${this.currentUser.id}/${fileName}`);
 
-            await supabase.from('posts').insert({
+            await window.supabase.from('posts').insert({
                 user_id: this.currentUser.id,
                 media_url: publicUrl,
                 media_type: 'image',
@@ -1118,7 +1753,7 @@ class TFeedV2 {
 
         try {
             if (isSaved) {
-                await supabase.from('saves').delete().eq('post_id', postId).eq('user_id', this.currentUser.id);
+                await window.supabase.from('saves').delete().eq('post_id', postId).eq('user_id', this.currentUser.id);
                 this.userSaves.delete(postId);
                 if (icon) {
                     icon.className = 'bi bi-bookmark tf-v2-action-icon';
@@ -1126,7 +1761,7 @@ class TFeedV2 {
                 }
                 UI.showNotification('Salvos', 'Removido dos itens salvos.', 'info');
             } else {
-                await supabase.from('saves').insert({ post_id: postId, user_id: this.currentUser.id });
+                await window.supabase.from('saves').insert({ post_id: postId, user_id: this.currentUser.id });
                 this.userSaves.add(postId);
                 if (icon) {
                     icon.className = 'bi bi-bookmark-fill tf-v2-action-icon';
@@ -1140,7 +1775,7 @@ class TFeedV2 {
     async renderSavedPosts() {
         UI.showLoading();
         try {
-            const { data: saves } = await supabase.from('saves')
+            const { data: saves } = await window.supabase.from('saves')
                 .select('post_id, posts(*, profiles(name, photo_url))')
                 .eq('user_id', this.currentUser.id);
 
@@ -1154,11 +1789,18 @@ class TFeedV2 {
             this.currentView = 'profile_saves';
             const grid = document.getElementById('profile-posts-grid');
             if (grid) {
-                grid.innerHTML = posts.map(p => `
-                    <div class="tf-v2-grid-item" onclick="tfeed.renderView('post_detail', '${p.id}')">
-                        <img src="${p.media_url}" loading="lazy">
-                    </div>
-                `).join('');
+                grid.innerHTML = posts.map(p => {
+                    const isVideo = p.media_type === 'video';
+                    return `
+                        <div class="tf-v2-grid-item" onclick="tfeed.renderView('post_detail', '${p.id}')" style="position:relative;">
+                            ${isVideo 
+                                ? `<video src="${p.media_url}#t=0.1" preload="metadata" muted playsinline style="width:100%; height:100%; object-fit:cover;"></video>
+                                   <i class="bi bi-play-fill" style="position:absolute; top:5px; right:5px; color:#fff; font-size:14px; text-shadow:0 0 5px #000;"></i>`
+                                : `<img src="${p.media_url}" loading="lazy">`
+                            }
+                        </div>
+                    `;
+                }).join('');
             }
         } catch (err) {
             UI.hideLoading();
@@ -1171,37 +1813,108 @@ class TFeedV2 {
         try {
             let res;
             if (type === 'followers') {
-                res = await supabase.from('followers').select('profiles!follower_id(id, name, photo_url)').eq('following_id', uid);
+                // Busca quem segue este perfil
+                res = await window.supabase.from('followers').select('follower_id, profiles!follower_id(id, name, photo_url)').eq('following_id', uid);
             } else {
-                res = await supabase.from('followers').select('profiles!following_id(id, name, photo_url)').eq('follower_id', uid);
+                // Busca quem este perfil segue
+                res = await window.supabase.from('followers').select('following_id, profiles!following_id(id, name, photo_url)').eq('follower_id', uid);
             }
+            
+            // Busca sugestões de forma MAIS ABERTA
+            let discoveryList = [];
+            try {
+                // Tenta buscar qualquer perfil (exceto o meu) para garantir que apareça algo
+                const { data: suggestions } = await window.supabase.from('profiles')
+                    .select('id, name, photo_url')
+                    .neq('id', this.currentUser.id)
+                    .limit(20);
+                
+                if (suggestions && suggestions.length > 0) {
+                    // Filtra os que eu JÁ sigo para sobrar apenas novos
+                    discoveryList = suggestions.filter(s => !this.followingIds.has(s.id)).slice(0, 8);
+                }
+            } catch (e) { console.warn('Erro ao buscar sugestões', e); }
+
             UI.hideLoading();
 
-            const list = res.data || [];
-            UI.showModal(type === 'followers' ? 'Seguidores' : 'Seguindo', `
-                <div class="p-md" style="max-height: 400px; overflow-y: auto;">
-                    ${list.length === 0 ? '<p class="text-center text-muted">Ninguém por aqui ainda.</p>' : list.map(item => {
-                const p = item.profiles;
-                return `
-                            <div class="flex items-center justify-between mb-md">
-                                <div class="flex items-center gap-md" onclick="UI.closeModal(); tfeed.renderView('profile', '${p.id}')" style="cursor: pointer;">
-                                    <img src="${p.photo_url || './logo.png'}" style="width: 40px; height: 40px; border-radius: 50%;">
-                                    <b>${p.name}</b>
-                                </div>
-                                ${p.id !== this.currentUser.id ? `
-                                    <button class="btn btn-sm btn-outline" onclick="tfeed.toggleFollow('${p.id}', ${this.followingIds.has(p.id)})">
-                                        ${this.followingIds.has(p.id) ? 'Seguindo' : 'Seguir'}
-                                    </button>
-                                ` : ''}
+            const fullList = res.data || [];
+            window._tempFollowsList = fullList;
+
+            const modalContent = `
+                <div class="p-md" style="display: flex; flex-direction: column; gap: 15px;">
+                    <!-- Barra de Busca -->
+                    <div class="auth-search-bar tf-v2-glass-pill" style="margin-bottom: 5px;">
+                        <i class="bi bi-search mr-sm"></i>
+                        <input type="text" placeholder="Pesquisar..." class="flex-1" 
+                               style="background:none; border:none; color:#fff; outline:none; font-size: 14px;" 
+                               oninput="tfeed.filterFollowsList(this.value, '${type}')">
+                    </div>
+
+                    <!-- Lista Principal -->
+                    <div id="follows-list-container" style="max-height: 250px; min-height: 50px; overflow-y: auto; padding-right: 5px;">
+                        ${this.renderFollowsListItems(fullList)}
+                    </div>
+
+                    <!-- Seção de Sugestões -->
+                    ${discoveryList.length > 0 ? `
+                        <div style="border-top: 1px solid var(--tf-border); padding-top: 15px; margin-top: 5px;">
+                            <h6 class="text-xs font-bold text-muted mb-md" style="letter-spacing: 1px; text-transform: uppercase;">Sugestões para você</h6>
+                            <div id="discovery-list-container">
+                                ${discoveryList.map(p => `
+                                    <div class="flex items-center justify-between mb-md">
+                                        <div class="flex items-center gap-md" onclick="UI.closeModal(); tfeed.renderView('profile', '${p.id}')" style="cursor: pointer;">
+                                            <img src="${p.photo_url || './logo.png'}" style="width: 38px; height: 38px; border-radius: 50%; object-fit: cover;">
+                                            <div>
+                                                <b class="text-sm" style="display: block;">${p.name}</b>
+                                                <small class="text-xs text-muted">Sugestão T-FIT</small>
+                                            </div>
+                                        </div>
+                                        <button class="btn btn-xs btn-primary" style="border-radius: 15px; padding: 5px 0; width: 110px; text-align: center; font-size: 10px;" onclick="tfeed.toggleFollow('${p.id}', false); this.innerText='Deixar de seguir'; this.disabled=true; this.style.opacity='0.6';">Seguir</button>
+                                    </div>
+                                `).join('')}
                             </div>
-                        `;
-            }).join('')}
+                        </div>
+                    ` : ''}
                 </div>
-            `);
+            `;
+
+            UI.showModal(type === 'followers' ? 'Seguidores' : 'Seguindo', modalContent);
+
         } catch (err) {
             UI.hideLoading();
-            console.error(err);
+            console.error('Erro no modal de seguidores:', err);
+            UI.showNotification('Erro', 'Não foi possível carregar a lista agora.', 'error');
         }
+    }
+
+    renderFollowsListItems(list) {
+        if (list.length === 0) return '<p class="text-center text-muted p-md text-sm">Nenhum resultado encontrado.</p>';
+        return list.map(item => {
+            const p = item.profiles;
+            if (!p) return '';
+            return `
+                <div class="flex items-center justify-between mb-md">
+                    <div class="flex items-center gap-md" onclick="UI.closeModal(); tfeed.renderView('profile', '${p.id}')" style="cursor: pointer;">
+                        <img src="${p.photo_url || './logo.png'}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">
+                        <b class="text-sm">${p.name}</b>
+                    </div>
+                    ${p.id !== this.currentUser.id ? `
+                        <button class="btn btn-xs btn-outline" style="border-radius: 15px; padding: 5px 0; width: 110px; text-align: center; font-size: 10px;" onclick="tfeed.toggleFollow('${p.id}', ${this.followingIds.has(p.id)})">
+                            ${this.followingIds.has(p.id) ? 'Deixar de seguir' : 'Seguir'}
+                        </button>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+    }
+
+    filterFollowsList(query, type) {
+        const list = window._tempFollowsList || [];
+        const filtered = list.filter(item => 
+            item.profiles?.name?.toLowerCase().includes(query.toLowerCase())
+        );
+        const container = document.getElementById('follows-list-container');
+        if (container) container.innerHTML = this.renderFollowsListItems(filtered);
     }
 
     sharePost(postId) {
@@ -1243,14 +1956,19 @@ class TFeedV2 {
                 UI.closeStoryViewer();
                 return;
             }
-            const isVideo = story.media_url?.includes('.mp4') || story.media_url?.includes('.mov');
+
+            // Mark as viewed
+            this.viewedStories.add(story.id);
+            localStorage.setItem('tf_viewed_stories', JSON.stringify(Array.from(this.viewedStories)));
+
+            const isVideo = story.media_url?.toLowerCase().match(/\.(mp4|mov|webm)$/) || story.media_url?.includes('video');
 
             const viewer = document.createElement('div');
             viewer.id = 'tf-v2-story-overlay';
-            viewer.className = 'tf-v2-story-viewer fade-in';
+            viewer.className = 'tf-v2-story-viewer'; // Removido fade-in para evitar sobreposição
             viewer.innerHTML = `
                 <div class="tf-v2-story-progress-bar">
-                    ${items.map((_, i) => `<div class="tf-v2-story-progress-seg"><div class="tf-v2-story-progress-fill" style="width: ${i < index ? '100' : (i === index ? '0' : '0')}%"></div></div>`).join('')}
+                    ${items.map((_, i) => `<div class="tf-v2-story-progress-seg"><div class="tf-v2-story-progress-fill" style="width: ${i < index ? '100' : '0'}%"></div></div>`).join('')}
                 </div>
                 <div class="tf-v2-story-header">
                     <div class="tf-v2-story-user" onclick="UI.closeStoryViewer(); tfeed.renderView('profile', '${uid}')" style="cursor: pointer;">
@@ -1260,13 +1978,13 @@ class TFeedV2 {
                     </div>
                     <button class="tf-v2-icon-btn" onclick="UI.closeStoryViewer()"><i class="bi bi-x-lg"></i></button>
                 </div>
-                <div class="tf-v2-story-content" onclick="tfeed.nextStory()">
+                <div class="tf-v2-story-content">
                     ${isVideo
                     ? `<video src="${story.media_url}" autoplay playsinline style="width: 100%; height: 100%; object-fit: contain;"></video>`
                     : `<img src="${story.media_url}" style="width: 100%; height: 100%; object-fit: contain;">`
                 }
-                    <div class="story-nav-left" style="position: absolute; left: 0; top: 0; width: 30%; height: 100%; z-index: 10;" onclick="event.stopPropagation(); tfeed.prevStory()"></div>
-                    <div class="story-nav-right" style="position: absolute; right: 0; top: 0; width: 70%; height: 100%; z-index: 5;" onclick="event.stopPropagation(); tfeed.nextStory()"></div>
+                    <div class="story-nav-left" style="position: absolute; left: 0; top: 0; width: 30%; height: 100%; z-index: 10;" onclick="tfeed.prevStory()"></div>
+                    <div class="story-nav-right" style="position: absolute; right: 0; top: 0; width: 70%; height: 100%; z-index: 5;" onclick="tfeed.nextStory()"></div>
                 </div>
                 <div class="tf-v2-story-footer p-md">
                      <div class="flex gap-md items-center">
@@ -1277,6 +1995,8 @@ class TFeedV2 {
                 </div>
             `;
 
+            const existing = document.getElementById('tf-v2-story-overlay');
+            if (existing) existing.remove();
             document.body.appendChild(viewer);
 
             // Animate progress
@@ -1306,15 +2026,20 @@ class TFeedV2 {
             if (viewer) viewer.remove();
             if (this.storyAnimRef) cancelAnimationFrame(this.storyAnimRef);
             this.currentStoryContext = null;
+
+            // Refresh bar to update ring colors (non-intrusive)
+            const bar = document.querySelector('.tf-v2-stories-bar');
+            if (bar) bar.innerHTML = this.renderStoriesBar();
         };
 
         this.nextStory = () => {
             const ctx = this.currentStoryContext;
             if (!ctx) return;
-            UI.closeStoryViewer();
             if (ctx.index + 1 < ctx.total) {
+                if (this.storyAnimRef) cancelAnimationFrame(this.storyAnimRef);
                 showStory(ctx.index + 1);
             } else {
+                UI.closeStoryViewer();
                 const userIds = Object.keys(this.stories);
                 const nextUserIdx = userIds.indexOf(ctx.uid) + 1;
                 if (nextUserIdx < userIds.length) {
@@ -1326,11 +2051,11 @@ class TFeedV2 {
         this.prevStory = () => {
             const ctx = this.currentStoryContext;
             if (!ctx) return;
-            UI.closeStoryViewer();
             if (ctx.index > 0) {
+                if (this.storyAnimRef) cancelAnimationFrame(this.storyAnimRef);
                 showStory(ctx.index - 1);
             } else {
-                showStory(0);
+                UI.closeStoryViewer();
             }
         };
 
@@ -1339,7 +2064,7 @@ class TFeedV2 {
 
     async loadComments(postId) {
         try {
-            const { data: comments, error } = await supabase.from('comments')
+            const { data: comments, error } = await window.supabase.from('comments')
                 .select('*, profiles(name, photo, photo_url, avatar_url)')
                 .eq('post_id', postId)
                 .order('created_at', { ascending: true });
@@ -1398,7 +2123,7 @@ class TFeedV2 {
             // Remove campos que não existem para evitar erro de 'column does not exist' se o supabase for estrito
             // Porém o Supabase costuma ignorar campos extras se usar RPC ou se a política permitir.
             // Mas aqui vamos simplesmente tentar o insert e capturar o erro.
-            const { error } = await supabase.from('comments').insert({
+            const { error } = await window.supabase.from('comments').insert({
                 post_id: postId,
                 user_id: this.currentUser.id,
                 comment_text: text
@@ -1407,7 +2132,7 @@ class TFeedV2 {
             if (error) {
                 // Tenta fallback para coluna 'text' se 'comment_text' falhar
                 if (error.message.includes('comment_text')) {
-                    const { error: error2 } = await supabase.from('comments').insert({
+                    const { error: error2 } = await window.supabase.from('comments').insert({
                         post_id: postId,
                         user_id: this.currentUser.id,
                         text: text
@@ -1422,8 +2147,10 @@ class TFeedV2 {
 
             // Optimistic UI update for the count in the main feed
             const countSpan = document.getElementById(`comments-count-${postId}`);
+            let newCommentsCount = 1;
             if (countSpan) {
-                const current = parseInt(countSpan.innerText.match(/\d+/) || [0])[0];
+                const match = countSpan.innerText.match(/\d+/);
+                const current = match ? parseInt(match[0]) : 0;
                 countSpan.innerText = `Ver todos os ${current + 1} comentários`;
             }
 
@@ -1464,7 +2191,7 @@ class TFeedV2 {
     async deletePost(postId) {
         if (!confirm('Tem certeza que deseja excluir esta publicação?')) return;
         try {
-            await supabase.from('posts').delete().eq('id', postId);
+            await window.supabase.from('posts').delete().eq('id', postId);
             UI.closeModal();
             this.refreshPosts();
             UI.showNotification('Sucesso', 'Publicação excluída.', 'success');
@@ -1495,7 +2222,7 @@ class TFeedV2 {
         const bio = document.getElementById('edit-bio').value;
         UI.showLoading();
         try {
-            await supabase.from('profiles').update({ name, bio }).eq('id', this.currentUser.id);
+            await window.supabase.from('profiles').update({ name, bio }).eq('id', this.currentUser.id);
             UI.hideLoading();
             UI.closeModal();
             this.loadInitialData();
@@ -1539,10 +2266,10 @@ class TFeedV2 {
         UI.showLoading();
         try {
             const fileName = `story_${Date.now()}`;
-            await supabase.storage.from('stories_media').upload(`${this.currentUser.id}/${fileName}`, file);
-            const { data: { publicUrl } } = supabase.storage.from('stories_media').getPublicUrl(`${this.currentUser.id}/${fileName}`);
+            await window.supabase.storage.from('stories_media').upload(`${this.currentUser.id}/${fileName}`, file);
+            const { data: { publicUrl } } = window.supabase.storage.from('stories_media').getPublicUrl(`${this.currentUser.id}/${fileName}`);
 
-            await supabase.from('stories').insert({
+            await window.supabase.from('stories').insert({
                 user_id: this.currentUser.id,
                 media_url: publicUrl
             });
@@ -1748,7 +2475,7 @@ class TFeedV2 {
         }
         UI.showLoading('Decolando...');
         try {
-            await supabase.from('t_boosts').insert({
+            await window.supabase.from('t_boosts').insert({
                 user_id: this.currentUser.id,
                 item_id: postId,
                 item_type: 'post',
@@ -1756,7 +2483,7 @@ class TFeedV2 {
                 duration_minutes: min,
                 expires_at: new Date(Date.now() + min * 60000).toISOString()
             });
-            await supabase.rpc('add_tpoints', { user_id_param: this.currentUser.id, amount_param: -cost });
+            await window.supabase.rpc('add_tpoints', { user_id_param: this.currentUser.id, amount_param: -cost });
             this.currentUser.t_points -= cost;
             UI.hideLoading();
             UI.closeModal();

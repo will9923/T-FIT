@@ -3,6 +3,19 @@
 // ============================================
 const APP_VERSION = '7.0';
 
+// DIAGNOSTIC: Trace router refreshes to identify the source of chat exits
+if (window.router) {
+    const originalRefresh = window.router.refresh;
+    window.router.refresh = function() {
+        console.warn('[DEBUG] Router.refresh() CALLED. Stack Trace:', new Error().stack);
+        if (window.ignoreFeedRefresh || window.tfeedActiveChat || document.getElementById('chat-messages')) {
+            console.error('[DEBUG] Refresh BLOCKED while chat is active.');
+            return;
+        }
+        return originalRefresh.apply(this, arguments);
+    };
+}
+
 // ============================================
 // DATABASE MANAGER (Supabase)
 // ============================================
@@ -63,7 +76,11 @@ class Database {
             // Isso não bloqueia a UI, o app já pode ser usado com os dados do LocalStorage
             this.backgroundSync();
 
-            console.log("✅ Database inicializado (Perfil pronto, outros sincronizando em background)");
+            // 3. Ativa Serviços Premium (Social & Notificações)
+            if (window.PushService) PushService.init().catch(e => console.warn('[Push] Falha ao iniciar:', e));
+            if (window.tfeed) tfeed.init();
+
+            console.log("✅ Database inicializado (Perfil pronto, serviços premium ativos)");
         } catch (error) {
             console.error("❌ Erro na inicialização do DB:", error);
             UI.updateConnectionStatus('error');
@@ -80,13 +97,19 @@ class Database {
         for (const col of secondaryCollections) {
             // Pequeno delay entre coleções para não sobrecarregar a rede/CPU de uma vez
             await new Promise(r => setTimeout(r, 500));
-            this.fetchCollection(col).catch(err => console.warn(`[Sync] Falha silenciosa em ${col}`));
+            // Pass skipRefresh=true during background sync to avoid flicker
+            this.fetchCollection(col, true).catch(err => console.warn(`[Sync] Falha silenciosa em ${col}`));
         }
 
-        // Coleções pesadas (Social/Feed) só carregamos sob demanda no T-Feed
+        // Final refresh after all background data is ready
+        if (window.router && window.router.refresh) {
+            window.router.refresh();
+        }
+        
+        console.log("📊 [Sync] Background sync completed.");
     }
 
-    async fetchCollection(collectionName) {
+    async fetchCollection(collectionName, skipRefresh = false) {
         try {
             // Se não houver internet, usa o que está no cache local
             if (!navigator.onLine) return;
@@ -115,8 +138,8 @@ class Database {
             }
             this.persistToLocal(collectionName);
 
-            // Trigger UI refresh after data arrives
-            if (window.router && window.router.refresh) {
+            // Trigger UI refresh after data arrives (unless skipped)
+            if (!skipRefresh && window.router && window.router.refresh) {
                 window.router.refresh();
             }
         } catch (err) {
@@ -195,14 +218,29 @@ class Database {
 
         this.persistToLocal(collection);
 
-        // OPTIMIZATION: Debounce refresh to handle bursts of events (like batch inserts)
-        const skipRefresh = ['posts', 'likes', 'comments', 'messages', 'notifications', 'stories'];
-        if (window.router && !skipRefresh.includes(collection)) {
+        // OPTIMIZATION: Debounce refresh to handle bursts of events
+        // Skip refresh for collections that don't need a full UI re-render (handled by components)
+        const skipRefreshList = [
+            'posts', 'likes', 'comments', 'messages', 'notifications', 
+            'stories', 'activity_logs', 'media_assets', 'exercise_videos',
+            'conversations', 'profiles', 'conversation_participants', 'calls', 'user_status',
+            'user_activity_map', 'academias', 't_boosts', 'pagamentos', 'alunos_planos', 
+            'subscriptions', 'contracts'
+        ];
+        
+        if (window.router && !skipRefreshList.includes(collection)) {
             if (this._refreshTimeout) clearTimeout(this._refreshTimeout);
             this._refreshTimeout = setTimeout(() => {
+                // HARD GUARD: If T-Feed is active or in a critical view (Chat/Workout/Exercise), BLOCK REFRESH
+                if (window.ignoreFeedRefresh || window.tfeedActiveChat || !!document.getElementById('chat-messages') || !!document.getElementById('workout-v2-container')) {
+                    console.log(`[Sync] Router refresh BLOCKED for table "${collection}" to preserve UI state.`);
+                    return;
+                }
+
+                console.log(`[Sync] Refreshing due to change in: ${collection}`);
                 window.router.refresh();
                 this._refreshTimeout = null;
-            }, 300); // 300ms window to group changes
+            }, 800); // 800ms window to group changes
         }
     }
 
@@ -1580,6 +1618,12 @@ class UI {
         }
 
         // OPTIMIZATION: If already in dashboard, only update the content area to avoid "white screen" and flicker
+        // GUARD: If T-Feed is active and in a critical view (chat/story), DO NOT WIPE the content area!
+        if (window.ignoreFeedRefresh && document.getElementById('t-feed-container')) {
+            console.log('[UI] Dashboard refresh ignored: T-Feed critical view active.');
+            return;
+        }
+
         const existingWrapper = app.querySelector('.dashboard-wrapper');
         const contentArea = document.getElementById('dashboard-content');
 
@@ -1606,10 +1650,11 @@ class UI {
                 featuredItems = [
                     { path: '/student/dashboard', icon: '🏠', label: 'Início' },
                     { path: '/student/workouts', icon: '💪', label: 'Treino' },
+                    { path: '/student/mapbox', icon: '📍', label: 'Waze Fit' },
                     { path: '/student/feed', icon: '📱', label: 'T-Feed' },
+                    { path: '#', action: 'spotifyUI.toggleFullPlayer(true)', icon: '🟢', label: 'T-Musicas' },
                 ];
                 otherItems = [
-                    { path: '/student/mapbox', icon: '📍', label: 'Waze' },
                     { path: '/student/payments', icon: '💳', label: 'Financeiro' },
                     { path: '/student/marketplace', icon: '👥', label: 'Marketplace de Personals' },
                     { path: '/student/nutrition', icon: '🥗', label: 'Minha dieta' },
@@ -1622,6 +1667,7 @@ class UI {
                     { path: '/personal/dashboard', icon: '🏠', label: 'Painel' },
                     { path: '/personal/students', icon: '👥', label: 'Alunos' },
                     { path: '/personal/feed', icon: '📱', label: 'T-Feed' },
+                    { path: '#', action: 'spotifyUI.toggleFullPlayer(true)', icon: '🟢', label: 'T-Musicas' },
                 ];
                 otherItems = [
                     { path: '/personal/nutrition', icon: '🥗', label: 'Dieta' },
@@ -1722,7 +1768,7 @@ class UI {
 
                     <!-- Bottom Navigation (Mobile) -->
                     <nav class="bottom-nav">
-                        ${featuredItems.slice(0, 2).map(item => {
+                        ${featuredItems.slice(0, 3).map(item => {
                 let badge = '';
                 if (item.path && item.path.endsWith('/feed')) {
                     try {
@@ -1755,7 +1801,7 @@ class UI {
                             </button>
                         </div>
 
-                        ${featuredItems.slice(2).map(item => {
+                        ${featuredItems.slice(3).map(item => {
                 let badge = '';
                 if (item.path && item.path.endsWith('/feed')) {
                     try {
@@ -2260,16 +2306,7 @@ class UI {
 
                             <button class="btn btn-primary btn-lg btn-block" id="btn-share-tfeed"
                     style="background: linear-gradient(45deg, #6366f1 0%, #8b5cf6 100%); border: none; font-weight: 800; height: 55px;">
-                            📱 Publicar no T-FEED
-                        </button>
-
-
-                        <button class="btn btn-primary btn-lg btn-block" id="btn-save-gallery" style="background: linear-gradient(45deg, #10b981 0%, #059669 100%); border: none; font-weight: 800; height: 55px;">
-                            💾 Salvar na Galeria
-                        </button>
-
-
-                        <button class="btn btn-ghost btn-block" onclick="UI.closeModal(); router.navigate('/student/dashboard');">
+                                         <button class="btn btn-ghost btn-block" onclick="UI.closeModal(); router.navigate('/student/dashboard');">
                             Continuar para o App
                         </button>
                 </div>
@@ -2282,25 +2319,28 @@ class UI {
         let dynamicDayName = dayName;
         let dynamicDuration = timing.duration || 0;
 
+        // Final step: Assign event listeners to the modal buttons
         document.getElementById('btn-share-tfeed')?.addEventListener('click', async () => {
             const btn = document.getElementById('btn-share-tfeed');
-            const originalText = btn.innerHTML;
-            btn.innerHTML = '⏳ Preparando Post...';
-            btn.disabled = true;
-
+            const originalText = btn?.innerHTML || '📱 Publicar no T-FEED';
+            
             try {
-                let finalImg = window._capturedWorkoutCard;
+                if (!btn) return;
+                btn.innerHTML = '⏳ Preparando Post...';
+                btn.disabled = true;
+
+                // Wait for modal render
+                await new Promise(r => setTimeout(r, 600));
+
+                let finalImg = await window.captureWorkoutCard();
+                
                 if (!finalImg) {
-                    finalImg = await window.captureWorkoutCard();
+                    throw new Error("Não foi possível gerar a imagem do treino. Tente tirar a foto novamente.");
                 }
-
-                if (!finalImg) throw new Error("Aguarde a imagem finalizar para publicar.");
-
-                btn.innerHTML = originalText;
-                btn.disabled = false;
 
                 if (typeof window.tfeed === 'undefined' && typeof TFeedV2 !== 'undefined') {
                     window.tfeed = new TFeedV2();
+                    await window.tfeed.init();
                 }
 
                 if (window.tfeed && typeof window.tfeed.openWorkoutShareModal === 'function') {
@@ -2312,43 +2352,49 @@ class UI {
                         capturedImg: finalImg
                     });
                 } else {
-                    UI.showNotification('Erro', 'T-Feed não está disponível no momento', 'error');
+                    throw new Error('O sistema de feed social não está pronto.');
                 }
-            } catch (err) {
+                
                 btn.innerHTML = originalText;
                 btn.disabled = false;
-                UI.showNotification('Aviso', err.message, 'warning');
+
+            } catch (err) {
+                console.error('[T-Feed Share Error]', err);
+                if (btn) {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }
+                UI.showNotification('Erro', err.message || 'Falha ao salvar a imagem do treino.', 'error');
             }
         });
 
-        // Implementation of Sharing logic using html2canvas
         document.getElementById('btn-save-gallery')?.addEventListener('click', async () => {
             const btn = document.getElementById('btn-save-gallery');
-            const originalText = btn.innerHTML;
-            btn.innerHTML = '⏳ Salvando...';
-            btn.disabled = true;
-
+            const originalText = btn?.innerHTML || '💾 Salvar na Galeria';
+            
             try {
+                if (!btn) return;
+                btn.innerHTML = '⏳ Salvando...';
+                btn.disabled = true;
+
                 const element = document.getElementById('share-card-container');
+                if (!element) throw new Error("Card de treino não encontrado.");
+
                 const canvas = await html2canvas(element, {
-                    scale: 3, // Higher quality
+                    scale: 3, 
                     backgroundColor: null,
                     logging: false,
                     useCORS: true,
                     allowTaint: true
                 });
 
-                // Generation of image
-                const workoutNameClean = workout?.name?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'treino';
-                const filename = `T - FIT_${workoutNameClean}_${new Date().getTime()}.png`;
+                const workoutNameClean = activeWorkout?.name?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'treino';
+                const filename = `T-FIT_${workoutNameClean}_${Date.now()}.png`;
 
-                // Convert canvas to Blob (more stable for mobile)
                 canvas.toBlob(async (blob) => {
                     if (!blob) throw new Error("Falha ao gerar imagem.");
-
                     const file = new File([blob], filename, { type: 'image/png' });
 
-                    // Try Web Share API (Best for Mobile Gallery)
                     if (navigator.canShare && navigator.canShare({ files: [file] })) {
                         try {
                             await navigator.share({
@@ -2359,25 +2405,24 @@ class UI {
                             UI.showNotification('Sucesso!', 'Imagem enviada/salva! 🔥', 'success');
                         } catch (shareError) {
                             if (shareError.name !== 'AbortError') {
-                                console.error('Share error:', shareError);
                                 UI.fallbackDownload(blob, filename);
                             }
                         }
                     } else {
-                        // Fallback to direct download
                         UI.fallbackDownload(blob, filename);
                     }
                 }, 'image/png');
 
             } catch (error) {
-                console.error('[Share] Erro:', error);
+                console.error('[Gallery Save Error]', error);
                 UI.showNotification('Erro', 'Não foi possível processar a imagem.', 'error');
             } finally {
-                btn.innerHTML = originalText;
-                btn.disabled = false;
+                if (btn) {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                }
             }
         });
-
     }
 
     static fallbackDownload(blob, filename) {
@@ -2664,162 +2709,15 @@ router.addRoute('/', () => {
         if (user.type === 'admin') return router.navigate('/admin/dashboard');
     }
 
-    const app = document.getElementById('app');
-    app.innerHTML = `
-        <div class="landing-page">
-            <nav class="landing-nav">
-                <div class="landing-logo">
-                    <img src="./logo.png" alt="T-FIT" style="height: 40px; vertical-align: middle; filter: drop-shadow(0 0 10px rgba(220, 38, 38, 0.3));">
-                </div>
-                <div class="flex gap-md">
-                    <button class="btn btn-sm btn-ghost" onclick="router.navigate('/login-selection')">Entrar</button>
-                    <button class="btn btn-sm btn-primary" onclick="router.navigate('/login-selection')" style="border-radius: 10px; font-weight: 700;">Começar Agora</button>
-                </div>
-            </nav>
-
-            <header class="landing-hero">
-                <div class="container">
-                    <span class="hero-badge">✨ A Nova Era do Treinamento</span>
-                    <h1 class="hero-title">Seu Corpo, Suas Regras,<br>Resultados Reais.</h1>
-                    <p class="hero-subtitle">
-                        A plataforma definitiva que une a precisão da Inteligência Artificial com a expertise dos melhores Personal Trainers do mercado.
-                    </p>
-                    <div class="hero-cta-group">
-                        <button class="btn-landing-primary" onclick="router.navigate('/login-selection')">
-                            🚀 QUERO COMEÇAR AGORA
-                        </button>
-                        <button class="btn btn-landing-outline" onclick="document.getElementById('features').scrollIntoView({behavior: 'smooth'})" style="border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: #fff; padding: 16px 32px; border-radius: 12px; font-weight: 700; cursor: pointer;">
-                            CONHECER VANTAGENS
-                        </button>
-                    </div>
-                </div>
-            </header>
-
-            <section class="social-proof-section">
-                <div class="container">
-                    <div class="social-proof-grid">
-                        <div class="social-stat">
-                            <span class="social-stat-value">+10.000</span>
-                            <span class="social-stat-label">Usuários Ativos</span>
-                        </div>
-                        <div class="social-stat">
-                            <span class="social-stat-value">4.9/5</span>
-                            <span class="social-stat-label">Avaliação na Store</span>
-                        </div>
-                        <div class="social-stat">
-                            <span class="social-stat-value">+500</span>
-                            <span class="social-stat-label">Personais Parceiros</span>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <section id="features" class="landing-features">
-                <div class="text-center mb-2xl">
-                    <span class="hero-badge" style="background: rgba(59, 130, 246, 0.1); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3);">Para Alunos</span>
-                    <h2 class="text-4xl font-black mt-md mb-sm">Treine com Inteligência</h2>
-                    <p class="text-muted max-w-2xl mx-auto">Tecnologia de ponta para quem busca performance e praticidade.</p>
-                </div>
-                
-                <div class="features-grid">
-                    <div class="feature-card">
-                        <div class="feature-icon">🤖</div>
-                        <h3 class="feature-title">Prescrição via IA</h3>
-                        <p class="feature-desc">Algoritmos que analisam seu perfil e criam o treino perfeito para seu objetivo em segundos.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">📈</div>
-                        <h3 class="feature-title">Gestão de Cargas</h3>
-                        <p class="feature-desc">Acompanhe sua progressão de força e volume total de treino com gráficos profissionais.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🥗</div>
-                        <h3 class="feature-title">Dieta Inteligente</h3>
-                        <p class="feature-desc">Cálculo de macros e planos alimentares flexíveis gerados para acelerar seus ganhos.</p>
-                    </div>
-                </div>
-
-                <div class="text-center mb-2xl mt-3xl">
-                    <span class="hero-badge" style="background: rgba(16, 185, 129, 0.1); color: #34d399; border-color: rgba(16, 185, 129, 0.3);">Para Personals</span>
-                    <h2 class="text-4xl font-black mt-md mb-sm">Escale sua Consultoria</h2>
-                    <p class="text-muted max-w-2xl mx-auto">As ferramentas que você precisa para gerenciar 10x mais alunos.</p>
-                </div>
-
-                <div class="features-grid">
-                    <div class="feature-card">
-                        <div class="feature-icon">💎</div>
-                        <h3 class="feature-title">Presença Digital</h3>
-                        <p class="feature-desc">Um aplicativo com sua marca para impressionar seus alunos e fidelizar sua base.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🚀</div>
-                        <h3 class="feature-title">Marketplace</h3>
-                        <p class="feature-desc">Apareça para milhares de alunos que buscam um personal qualificado na nossa vitrine.</p>
-                    </div>
-                </div>
-            </section>
-
-            <section class="testimonials-section">
-                <div class="container">
-                    <div class="text-center mb-2xl">
-                        <h2 class="text-3xl font-bold">Quem usa, aprova! ⭐</h2>
-                    </div>
-                    <div class="testimonials-grid">
-                        <div class="testimonial-card">
-                            <p class="testimonial-content">"O T-FIT mudou minha forma de treinar. A IA monta treinos incríveis e eu finalmente vejo resultados reais."</p>
-                            <div class="testimonial-user">
-                                <div class="testimonial-avatar">RL</div>
-                                <div class="testimonial-info">
-                                    <h4>Ricardo Lima</h4>
-                                    <p>Aluno há 6 meses</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="testimonial-card">
-                            <p class="testimonial-content">"Como personal, ganhei muita agilidade. Consigo gerenciar meus 40 alunos com facilidade e profissionalismo."</p>
-                            <div class="testimonial-user">
-                                <div class="testimonial-avatar">AL</div>
-                                <div class="testimonial-info">
-                                    <h4>Amanda Lopes</h4>
-                                    <p>Personal Trainer Elite</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="testimonial-card">
-                            <p class="testimonial-content">"O sistema de pagamentos automáticos é um sonho. Parar de cobrar aluno manual me economizou horas."</p>
-                            <div class="testimonial-user">
-                                <div class="testimonial-avatar">JP</div>
-                                <div class="testimonial-info">
-                                    <h4>João Pedro</h4>
-                                    <p>Personal Trainer</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <div class="landing-footer-cta card mx-auto mb-2xl" style="max-width: 900px; border-radius: 40px; background: linear-gradient(135deg, rgba(220, 38, 38, 0.1) 0%, rgba(30, 41, 59, 0.8) 100%);">
-                <h2 class="text-4xl font-black mb-lg">Pronto para transformar seu corpo?</h2>
-                <p class="text-muted mb-xl max-w-2xl mx-auto">Junte-se a comunidade T-FIT e tenha acesso as ferramentas de elite do fitness mundial.</p>
-                <button class="btn-landing-primary" onclick="router.navigate('/login-selection')" style="transform: scale(1.1);">
-                    CRIAR MINHA CONTA GRÁTIS
-                </button>
-            </div>
-
-            <footer class="landing-footer">
-                <div class="container">
-                    <img src="./logo.png" alt="T-FIT" style="height: 30px; opacity: 0.5; margin-bottom: 20px;">
-                    <p>&copy; ${new Date().getFullYear()} T-FIT. A tecnologia a serviço do seu resultado.</p>
-                </div>
-            </footer>
-        </div>
-    `;
-
-    // Update database status indicator after render
-    setTimeout(() => {
-        UI.injectStatusIndicator();
-    }, 100);
+    if (window.LandingPage && typeof window.LandingPage.init === 'function') {
+        window.LandingPage.init();
+    } else {
+        console.error('LandingPage module not loaded!');
+        // Fallback or retry
+        setTimeout(() => {
+            if (window.LandingPage) window.LandingPage.init();
+        }, 500);
+    }
 });
 
 // Admin Login (SupaBase Auth Real)
@@ -2854,10 +2752,6 @@ router.addRoute('/admin/login', () => {
                 <div class="mt-md">
                     <button class="btn btn-ghost btn-block" onclick="router.navigate('/')">
                         ← Voltar
-                    </button>
-                    <!-- Atalho Demo (Remover depois) -->
-                    <button class="btn btn-sm btn-ghost mt-sm" onclick="auth.loginDirect('admin')" style="opacity: 0.5;">
-                        🗝️ Demo (Sem Senha)
                     </button>
                 </div>
             </div>
@@ -2929,10 +2823,6 @@ router.addRoute('/personal/login', () => {
                 <div class="mt-md">
                     <button class="btn btn-ghost btn-block" onclick="router.navigate('/')">
                         ← Voltar
-                    </button>
-                    <!-- Atalho Demo -->
-                    <button class="btn btn-sm btn-ghost mt-sm" onclick="auth.loginDirect('personal')" style="opacity: 0.5;">
-                        🗝️ Demo (Sem Senha)
                     </button>
                 </div>
             </div>
@@ -3010,10 +2900,6 @@ router.addRoute('/student/login', () => {
                     
                     <button class="btn btn-ghost btn-block mt-md" onclick="router.navigate('/')">
                         ← Voltar
-                    </button>
-                    <!-- Atalho Demo -->
-                    <button class="btn btn-sm btn-ghost mt-sm" onclick="auth.loginDirect('student')" style="opacity: 0.5;">
-                        🗝️ Demo (Sem Senha)
                     </button>
                 </div>
             </div>
@@ -3239,6 +3125,18 @@ window.addEventListener('DOMContentLoaded', async () => {
 
         // Determine First Route
         try {
+            const isAuthCallback = window.location.pathname.includes('/callback') || window.location.search.includes('code=');
+            
+            if (isAuthCallback && window.spotifyManager) {
+                console.log("⚡ [Boot] Callback detectado via URL. Processando Spotify...");
+                const handled = await spotifyManager.checkCallback();
+                if (handled) {
+                    console.log("✨ [Boot] Spotify processado com sucesso. App navegou via callback.");
+                    finishBoot(true);
+                    return; // Interrompe o fluxo de navegação inicial do boot
+                }
+            }
+            
             if (auth && auth.isAuthenticated && auth.isAuthenticated()) {
                 const user = auth.getCurrentUser();
                 console.log("👤 Usuário Autenticado:", user?.name);

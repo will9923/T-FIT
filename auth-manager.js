@@ -164,12 +164,14 @@ class AuthManager {
 
     redirectAfterLogin(role) {
         const hash = window.location.hash;
+        // Se o ?code= pertence ao Spotify (não ao Supabase), ignora o redirect do T-FIT
+        const isSpotifyCallback = !!window._spotifyCallbackInProgress;
+        const isCallback = isSpotifyCallback || window.location.pathname.includes('/callback') || window.location.search.includes('code=');
 
-        // Se estiver em uma página de login específica, NÃO redirecionar automaticamente.
-        // O handler do formulário de login fará a validação de role antes de redirecionar.
-        if (hash.includes('/admin/login') || hash.includes('/personal/login') || hash.includes('/student/login') ||
+        // Se estiver em uma página de login específica ou retorno de auth (callback), NÃO redirecionar.
+        if (isCallback || hash.includes('/admin/login') || hash.includes('/personal/login') || hash.includes('/student/login') ||
             hash.includes('/personal/register') || hash.includes('/student/register')) {
-            console.log('[Auth] Em página de auth, redirecionamento automático CANCELADO para evitar conflitos de role.');
+            console.log(`[Auth] Path "${window.location.pathname}" ou Hash "${hash}" detectado. Redirecionamento automático IGNORADO para preservar fluxo.`);
             return;
         }
 

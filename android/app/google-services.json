@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "323918736527",
+    "firebase_url": "https://fitpro-d308f-default-rtdb.firebaseio.com",
+    "project_id": "fitpro-d308f",
+    "storage_bucket": "fitpro-d308f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:323918736527:android:ca3ef1fd624236e53fd4fa",
+        "android_client_info": {
+          "package_name": "com.tfit.treinos"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDLkdNY8wSEVVrG5tUnHW7ldAeelcz4KI0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

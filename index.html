@@ -11,7 +11,7 @@
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Archivo+Black&family=Codystar&family=Merriweather:wght@700&family=Monsieur+La+Doulaise&display=swap"
         rel="stylesheet">
     <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
@@ -75,6 +75,8 @@
     <link rel="stylesheet" href="style.css?v=14.13">
     <link rel="stylesheet" href="responsive-fix.css?v=14.13">
     <link rel="stylesheet" href="tfeed-v2.css?v=2.0">
+    <link rel="stylesheet" href="tfeed-stories-editor.css?v=1.1">
+    <link rel="stylesheet" href="spotify-player.css?v=1.0">
 
 
     <!-- PWA Manifest -->
@@ -248,9 +250,15 @@
     <script src="capacitor.js"></script>
     <script src="native-bridge.js"></script>
 
+    <script defer src="landing-page.js?v=3.0"></script>
     <script defer src="error-monitor.js?v=7.0"></script>
     <script defer src="auth-manager.js?v=14.17"></script>
-    <script defer src="app.js?v=14.17"></script>
+    <!-- Spotify Engine (Must load before app.js) -->
+    <script src="https://sdk.scdn.co/spotify-player.js"></script>
+    <script defer src="spotify-manager.js?v=1.0"></script>
+    <script defer src="spotify-player.js?v=1.0"></script>
+
+    <script defer src="app.js?v=14.18"></script>
     <script defer src="workout-db.js?v=14.7"></script>
     <script defer src="nutrition-db.js?v=14.7"></script>
     <script defer src="media-manager.js?v=14.7"></script>
@@ -264,7 +272,6 @@
     <script defer src="payment-pages.js?v=14.5"></script>
     <script defer src="admin-pages.js?v=14.17"></script>
     <script defer src="student-pages.js?v=14.17"></script>
-    <script defer src="landing-page.js?v=2.0"></script>
     <script defer src="growth-system.js?v=1.0"></script>
 
     <!-- Mapbox (Unico Mapa Ativo) -->
@@ -273,6 +280,9 @@
     <script defer src="student-auth.js?v=14.4"></script>
     <script defer src="student-plan.js?v=14.4"></script>
     <script defer src="tfeed-v2.js?v=2.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/interactjs/dist/interact.min.js"></script>
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    <script defer src="tfeed-stories-editor.js?v=1.3"></script>
     <script defer src="tfit-hub.js?v=14.4"></script>
     <!-- DEBUG OVERRIDE -->
     <!-- <script src="debug-student.js?v=9.9"></script> -->

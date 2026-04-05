@@ -348,7 +348,7 @@ const AIHelper = {
             - Foco/Grupamento: ${params.focus || 'Full Body'}
             - Nível/Experiência: ${params.level || 'intermediário'}
             - Objetivo Principal: ${params.specificGoal || 'hipertrofia'}
-            - Local e Equipamentos: ${params.location || 'academia'} com ${params.equipment || 'academia completa'}
+            - Local e Equipamentos: ${params.location || params['wiz-location'] || 'academia'} com ${params.equipment || params['wiz-equipment'] || 'equipamentos correspondentes ao local'}
             - Tempo Disponível: ${params.time || 60} minutos
             
             CONTEXTO FÍSICO:
@@ -365,7 +365,7 @@ const AIHelper = {
             1. Periodização: Selecione exercícios que sigam uma lógica biomecânica eficiente (ex: grandes grupos antes de pequenos).
             2. Segurança: Considere as restrições rigorosamente. Se houver má qualidade de sono ou alto estresse, modere o volume mas mantenha a intensidade.
             3. Volume: Ajuste séries e repetições para maximizar o resultado considerando que ${params.age} anos e ${params.sleep} de sono afetam a recuperação.
-            4. Local: Use APENAS equipamentos disponíveis em ${params.equipment}.
+            4. Local: Use APENAS equipamentos disponíveis em ${params.location || params['wiz-location'] || 'academia'}.
             
             Formato JSON (ARRAY de objetos):
             [{
@@ -490,7 +490,7 @@ const AIHelper = {
             - EXERCÍCIOS POR TREINO: EXATAMENTE ${safeExNum} exercícios em cada ficha.
             - Nível/Experiência: ${params.level} (Tempo de treino: ${params.experienceTime || params['wiz-experience'] || 'Não informado'})
             - Objetivo: ${params.specificGoal}
-            - Local: ${params.location || 'academia'}
+            - Local: ${params.location || params['wiz-location'] || 'academia'}
             - Duração por sessão: ${params.time || 60} min
             - SÉRIES POR EXERCÍCIO (Sugerido): ${params.seriesCount || '3'} séries
             
@@ -515,7 +515,7 @@ const AIHelper = {
             1. Estrutura: A divisão deve ser biomecanicamente equilibrada (ex: PPL, Upper/Lower, Arnold Split).
             2. Fadiga: Como o aluno tem estresse nível ${params.stress} e sono ${params.sleep}, gerencie o volume semanal para evitar overtraining, focando em qualidade sobre quantidade.
             3. Progressão: Organize os exercícios para maximizar a tensão mecânica dentro dos ${params.time} minutos disponíveis.
-            4. Especificidade: Ajuste os exercícios rigosoramente para o local (${params.location}) e equipamentos (${params.equipment}).
+            4. Especificidade: Ajuste os exercícios rigorosamente para o local (${params.location || params['wiz-location'] || 'academia'}). Se for em casa, priorize calistenia ou informe caso exija equipamentos.
             5. Segurança: NUNCA sugira exercícios que comprometam as lesões relatadas (${params.restrictions}).
             6. Retorno: Retorne APENAS o JSON puro. Não explique nada fora do JSON.
  
